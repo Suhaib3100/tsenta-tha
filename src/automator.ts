@@ -1,27 +1,23 @@
 import { chromium } from "playwright";
 import { sampleProfile } from "./profile";
 import type { ApplicationResult, UserProfile } from "./types";
+import { detectPlatform, getAllPlatforms } from "./ats/base";
+
+// Register platforms (side-effect imports)
+import "./ats/acme";
+import "./ats/globex";
 
 /**
  * ============================================================
  * TSENTA TAKE-HOME ASSESSMENT - ATS Form Automator
  * ============================================================
  *
- * Your task: Build an automation system that can fill out job
- * application forms across MULTIPLE ATS platforms using Playwright.
+ * Automated job application system using Playwright.
+ * Supports multiple ATS platforms through a modular architecture.
  *
- * There are two mock forms to automate:
- *
- *   1. Acme Corp    → http://localhost:3939/acme.html
- *      Multi-step form with progress bar, typeahead, checkboxes,
- *      radio buttons, conditional fields, file upload
- *
- *   2. Globex Corp  → http://localhost:3939/globex.html
- *      Single-page accordion form with toggle switches, chip
- *      selectors, salary slider, datalist, different selectors
- *
- * Your code should handle BOTH forms with a shared architecture.
- * Read the README for full instructions and evaluation criteria.
+ * Platforms:
+ *   1. Acme Corp    → Multi-step wizard form
+ *   2. Globex Corp  → Single-page accordion form
  */
 
 const BASE_URL = "http://localhost:3939";
@@ -32,16 +28,40 @@ async function applyToJob(
 ): Promise<ApplicationResult> {
   const startTime = Date.now();
 
-  // TODO: Implement your automation here
-  //
-  // Think about:
-  //   - How do you detect which ATS/form you're on?
-  //   - How do you share logic for common field types (text, dropdown, file upload)
-  //     while handling platform-specific differences (typeahead vs datalist,
-  //     checkboxes vs chips, radio buttons vs toggles)?
-  //   - How would a third ATS be added without rewriting everything?
+  // Launch browser
+  const browser = await chromium.launch({ headless: false });
+  const context = await browser.newContext();
+  const page = await context.newPage();
 
-  throw new Error("Not implemented — this is your task!");
+  try {
+    // Navigate to the form
+    await page.goto(url, { waitUntil: 'networkidle' });
+
+    // Detect platform from URL
+    const platform = detectPlatform(url);
+    
+    if (!platform) {
+      throw new Error(`Unknown ATS platform for URL: ${url}`);
+    }
+
+    console.log(`[Automator] Detected platform: ${platform.name}`);
+
+    // Run the platform's form automation
+    const result = await platform.run(page, profile);
+
+    return result;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      success: false,
+      error: message,
+      durationMs: Date.now() - startTime,
+    };
+  } finally {
+    // Keep browser open briefly to see confirmation
+    await page.waitForTimeout(2000);
+    await browser.close();
+  }
 }
 
 // ── Entry point ──────────────────────────────────────────────

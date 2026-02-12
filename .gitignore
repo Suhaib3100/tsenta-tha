@@ -5,3 +5,4 @@ playwright-report/
 .DS_Store
 *.log
 .ref
+pnpm-lock.yaml

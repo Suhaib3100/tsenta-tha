@@ -11,8 +11,9 @@
     "playwright": "^1.52.0"
   },
   "devDependencies": {
-    "typescript": "^5.7.0",
+    "@types/node": "^25.2.3",
+    "serve": "^14.2.0",
     "tsx": "^4.19.0",
-    "serve": "^14.2.0"
+    "typescript": "^5.7.0"
   }
 }

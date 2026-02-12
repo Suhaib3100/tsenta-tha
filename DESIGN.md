@@ -10,7 +10,7 @@ Build a Playwright automation system that fills job application forms across mul
 
 ```
 src/
-├── index.ts               # Entry point
+├── automator.ts           # Entry point (orchestrator)
 ├── types.ts               # Types (given, readonly)
 ├── profile.ts             # Candidate data (given, readonly)
 │
@@ -24,7 +24,7 @@ src/
     └── globex.ts          # Globex Corp (accordion + mappings)
 ```
 
-**7 files. 2 folders. Clean separation.**
+**5 new files. 2 folders. Clean separation.**
 
 | Folder | Purpose |
 |--------|---------|
