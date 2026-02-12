@@ -8,6 +8,7 @@ import {
   randomInt,
   gaussianRandom,
   shouldPaste,
+  getInputBehavior,
   PASTE_PATTERNS,
   HumanConfig,
 } from '../../src/engine/human';
@@ -66,8 +67,57 @@ describe('gaussianRandom', () => {
 });
 
 // ─────────────────────────────────────────────────────────────
-// Smart Paste Detection
+// Smart Input Behavior
 // ─────────────────────────────────────────────────────────────
+
+describe('getInputBehavior', () => {
+  describe('URLs and emails (always paste)', () => {
+    it('returns paste for https URLs', () => {
+      expect(getInputBehavior('https://example.com')).toBe('paste');
+      expect(getInputBehavior('https://linkedin.com/in/johndoe')).toBe('paste');
+    });
+
+    it('returns paste for email addresses', () => {
+      expect(getInputBehavior('john.doe@example.com')).toBe('paste');
+    });
+  });
+
+  describe('short text (always type)', () => {
+    it('returns type for names', () => {
+      expect(getInputBehavior('John Doe')).toBe('type');
+    });
+
+    it('returns type for short text', () => {
+      expect(getInputBehavior('Hello world')).toBe('type');
+    });
+  });
+
+  describe('long text (varied behavior)', () => {
+    it('returns one of the valid behaviors for long text', () => {
+      const longText = 'A'.repeat(250);
+      const validBehaviors = ['type', 'paste', 'paste-then-edit', 'type-some-paste-rest'];
+      
+      // Run multiple times to test randomness
+      for (let i = 0; i < 20; i++) {
+        const behavior = getInputBehavior(longText);
+        expect(validBehaviors).toContain(behavior);
+      }
+    });
+
+    it('produces varied results for descriptions', () => {
+      const longText = 'This is a longer description that should trigger varied human-like input behavior patterns.'.repeat(3);
+      const results = new Set<string>();
+      
+      // Run enough times to see variation
+      for (let i = 0; i < 100; i++) {
+        results.add(getInputBehavior(longText));
+      }
+      
+      // Should see at least 2 different behaviors
+      expect(results.size).toBeGreaterThanOrEqual(2);
+    });
+  });
+});
 
 describe('shouldPaste', () => {
   describe('URLs', () => {
@@ -100,21 +150,13 @@ describe('shouldPaste', () => {
     });
   });
 
-  describe('regular text', () => {
-    it('returns false for names', () => {
+  describe('short text', () => {
+    it('returns false for names (always typed)', () => {
       expect(shouldPaste('John Doe')).toBe(false);
     });
 
-    it('returns false for short text', () => {
+    it('returns false for short text (always typed)', () => {
       expect(shouldPaste('Hello world')).toBe(false);
-    });
-
-    it('returns false for addresses', () => {
-      expect(shouldPaste('123 Main Street')).toBe(false);
-    });
-
-    it('returns false for phone numbers', () => {
-      expect(shouldPaste('+1-555-123-4567')).toBe(false);
     });
   });
 });

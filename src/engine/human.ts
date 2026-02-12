@@ -326,17 +326,46 @@ export const PASTE_PATTERNS = [
 ];
 
 /**
- * Should this text be pasted instead of typed?
- * URLs and emails are typically copy-pasted by humans.
+ * Input behavior types - mimics real human variation
  */
-export function shouldPaste(text: string): boolean {
-  // Long text (cover letters) - 50% chance to paste
-  if (text.length > 200) {
-    return Math.random() > 0.5;
+export type InputBehavior = 'type' | 'paste' | 'paste-then-edit' | 'type-some-paste-rest';
+
+/**
+ * Determine how to input text - URLs/emails always paste, descriptions vary randomly.
+ * Returns behavior type for realistic human variation.
+ */
+export function getInputBehavior(text: string): InputBehavior {
+  // URLs and emails - always paste (humans copy these)
+  if (PASTE_PATTERNS.some(pattern => pattern.test(text))) {
+    return 'paste';
   }
   
-  // Check if matches paste patterns
-  return PASTE_PATTERNS.some(pattern => pattern.test(text));
+  // Short text (< 50 chars) - type it out
+  if (text.length < 50) {
+    return 'type';
+  }
+  
+  // Medium text (50-200 chars) - 70% type, 30% paste
+  if (text.length <= 200) {
+    return Math.random() < 0.7 ? 'type' : 'paste';
+  }
+  
+  // Long text (descriptions, cover letters) - varied behavior
+  const rand = Math.random();
+  if (rand < 0.25) return 'type';              // 25% - slow typer, types everything
+  if (rand < 0.55) return 'paste';             // 30% - pastes from doc
+  if (rand < 0.80) return 'paste-then-edit';   // 25% - pastes, then fixes something
+  return 'type-some-paste-rest';               // 20% - starts typing, gives up, pastes
+}
+
+/**
+ * Should this text be pasted instead of typed?
+ * URLs and emails are typically copy-pasted by humans.
+ * @deprecated Use getInputBehavior() for more nuanced behavior
+ */
+export function shouldPaste(text: string): boolean {
+  const behavior = getInputBehavior(text);
+  return behavior !== 'type';
 }
 
 /**
@@ -371,35 +400,77 @@ export async function humanPaste(page: Page, selector: string, text: string): Pr
 
 /**
  * Fill input with realistic behavior.
- * Smart: pastes URLs/emails, types regular text.
+ * Varies between typing, pasting, and hybrid approaches based on text type.
  */
 export async function humanFill(page: Page, selector: string, text: string): Promise<void> {
-  // Use paste for URLs/emails, type for regular text
-  if (shouldPaste(text)) {
-    await humanPaste(page, selector, text);
-    return;
-  }
-  
+  const behavior = getInputBehavior(text);
   const el = page.locator(selector);
   
   // Scroll into view
   await el.scrollIntoViewIfNeeded();
   await microDelay();
   
-  // Click to focus
-  await el.click();
-  await microDelay();
-  
-  // Select all and delete (more natural than clear())
-  await page.keyboard.down('Meta'); // Cmd on Mac
-  await page.keyboard.press('a');
-  await page.keyboard.up('Meta');
-  await delay(50, 100);
-  await page.keyboard.press('Backspace');
-  await delay(50, 100);
-  
-  // Type with human-like behavior
-  await humanType(el, text);
+  switch (behavior) {
+    case 'paste':
+      await humanPaste(page, selector, text);
+      break;
+      
+    case 'paste-then-edit':
+      // Paste, then make a small "fix" (delete last char, retype it)
+      await humanPaste(page, selector, text);
+      await delay(300, 600); // Look at it, notice "mistake"
+      await el.press('End');
+      await delay(100, 200);
+      await el.press('Backspace');
+      await delay(80, 150);
+      await el.press(text[text.length - 1]); // Retype last char
+      await delay(100, 250);
+      break;
+      
+    case 'type-some-paste-rest':
+      // Type first few words, then "give up" and paste the rest
+      const words = text.split(' ');
+      const typeCount = Math.min(randomInt(2, 4), words.length - 1);
+      const typeText = words.slice(0, typeCount).join(' ') + ' ';
+      const pasteText = words.slice(typeCount).join(' ');
+      
+      // Click to focus
+      await el.click();
+      await microDelay();
+      
+      // Type first few words
+      await humanType(el, typeText);
+      
+      // Pause - "this is taking too long..."
+      await delay(400, 800);
+      
+      // Select all and paste full text (gave up typing)
+      await page.keyboard.down('Meta');
+      await page.keyboard.press('a');
+      await page.keyboard.up('Meta');
+      await delay(50, 100);
+      await el.fill(text);
+      await delay(150, 300);
+      break;
+      
+    case 'type':
+    default:
+      // Click to focus
+      await el.click();
+      await microDelay();
+      
+      // Select all and delete (more natural than clear())
+      await page.keyboard.down('Meta');
+      await page.keyboard.press('a');
+      await page.keyboard.up('Meta');
+      await delay(50, 100);
+      await page.keyboard.press('Backspace');
+      await delay(50, 100);
+      
+      // Type with human-like behavior
+      await humanType(el, text);
+      break;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -483,10 +554,16 @@ export function getRandomViewport(): { width: number; height: number } {
  */
 export function getRandomUserAgent(): string {
   const userAgents = [
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+    // Chrome 132 (Jan 2026)
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+    // Safari 18 (macOS Sequoia)
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.2 Safari/605.1.15',
+    // Firefox 134 (Jan 2026)
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:134.0) Gecko/20100101 Firefox/134.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 14.4; rv:134.0) Gecko/20100101 Firefox/134.0',
+    // Edge 132 (Chromium-based)
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 Edg/132.0.0.0',
   ];
   return userAgents[randomInt(0, userAgents.length - 1)];
 }
