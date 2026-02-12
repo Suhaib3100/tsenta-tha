@@ -5,7 +5,7 @@
 
 import type { Page } from 'playwright';
 import type { UserProfile } from '../types';
-import { Platform, registerPlatform } from './base';
+import { Platform, registerPlatform, type HandlerContext } from './base';
 import {
   fillText,
   selectOption,
@@ -16,6 +16,8 @@ import {
   clickButton,
 } from '../lib/fields';
 import { delay, waitFor } from '../lib/human';
+import { retry } from '../lib/retry';
+import { acmeMapper } from '../lib/mappings';
 import { resolve } from 'path';
 
 // ─────────────────────────────────────────────────────────────
@@ -43,9 +45,12 @@ const SEL = {
   // Step 3: Questions
   workAuth: 'workAuth',
   visaSponsorship: 'visaSponsorship',
+  visaSponsorshipGroup: '#visa-sponsorship-group',
   startDate: '#start-date',
   salaryExpectation: '#salary-expectation',
   referral: '#referral',
+  referralOtherGroup: '#referral-other-group',
+  referralOther: '#referral-other',
   coverLetter: '#cover-letter',
 
   // Step 4: Review
@@ -66,13 +71,16 @@ const SEL = {
 
 class AcmePlatform extends Platform {
   readonly name = 'Acme Corp';
+  readonly id = 'acme';
   readonly urlPattern = /acme/i;
 
-  protected async fill(page: Page, profile: UserProfile): Promise<void> {
-    await this.fillStep1(page, profile);
-    await this.fillStep2(page, profile);
-    await this.fillStep3(page, profile);
-    await this.fillStep4(page);
+  protected async fill(ctx: HandlerContext): Promise<void> {
+    const { page, profile, logger } = ctx;
+    
+    await ctx.runStep('Step 1: Personal Info', () => this.fillStep1(page, profile));
+    await ctx.runStep('Step 2: Experience', () => this.fillStep2(page, profile));
+    await ctx.runStep('Step 3: Questions', () => this.fillStep3(page, profile));
+    await ctx.runStep('Step 4: Review', () => this.fillStep4(page));
   }
 
   // ─────────────────────────────────────────────────────────
@@ -80,14 +88,13 @@ class AcmePlatform extends Platform {
   // ─────────────────────────────────────────────────────────
 
   private async fillStep1(page: Page, profile: UserProfile): Promise<void> {
-    console.log('[Acme] Step 1: Personal Information');
-
     await fillText(page, SEL.firstName, profile.firstName);
     await fillText(page, SEL.lastName, profile.lastName);
     await fillText(page, SEL.email, profile.email);
     await fillText(page, SEL.phone, profile.phone);
     await fillText(page, SEL.location, profile.location);
 
+    // Optional fields
     if (profile.linkedIn) {
       await fillText(page, SEL.linkedin, profile.linkedIn);
     }
@@ -103,21 +110,25 @@ class AcmePlatform extends Platform {
   // ─────────────────────────────────────────────────────────
 
   private async fillStep2(page: Page, profile: UserProfile): Promise<void> {
-    console.log('[Acme] Step 2: Experience & Education');
-
-    // Resume upload
+    // Resume upload with retry
     const resumePath = resolve(process.cwd(), 'fixtures/sample-resume.pdf');
-    await uploadFile(page, SEL.resume, resumePath);
+    await retry(() => uploadFile(page, SEL.resume, resumePath), 'standard');
 
     // Dropdowns
-    await selectOption(page, SEL.experienceLevel, profile.experienceLevel);
-    await selectOption(page, SEL.education, profile.education);
+    await selectOption(page, SEL.experienceLevel, acmeMapper.experience(profile.experienceLevel));
+    await selectOption(page, SEL.education, acmeMapper.education(profile.education));
 
-    // School typeahead
-    await fillTypeahead(page, SEL.school, SEL.schoolDropdown, profile.school);
+    // School typeahead with retry
+    await retry(
+      () => fillTypeahead(page, SEL.school, SEL.schoolDropdown, profile.school),
+      'aggressive'
+    );
 
-    // Skills checkboxes
-    await checkBoxes(page, SEL.skillsGroup, profile.skills);
+    // Skills checkboxes (only select skills that exist)
+    const validSkills = profile.skills.filter(s => 
+      ['javascript', 'typescript', 'python', 'react', 'nodejs', 'sql', 'git', 'docker'].includes(s)
+    );
+    await checkBoxes(page, SEL.skillsGroup, validSkills);
 
     await this.nextStep(page);
   }
@@ -127,16 +138,17 @@ class AcmePlatform extends Platform {
   // ─────────────────────────────────────────────────────────
 
   private async fillStep3(page: Page, profile: UserProfile): Promise<void> {
-    console.log('[Acme] Step 3: Additional Questions');
-
     // Work authorization
     const workAuthValue = profile.workAuthorized ? 'yes' : 'no';
     await clickRadio(page, SEL.workAuth, workAuthValue);
     await delay(200, 400);
 
-    // Visa sponsorship (conditional - appears after work auth)
-    const visaValue = profile.requiresVisa ? 'yes' : 'no';
-    await clickRadio(page, SEL.visaSponsorship, visaValue);
+    // Visa sponsorship (conditional - wait for it to appear)
+    const visaGroupVisible = await waitFor(page, SEL.visaSponsorshipGroup, 2000);
+    if (visaGroupVisible) {
+      const visaValue = profile.requiresVisa ? 'yes' : 'no';
+      await clickRadio(page, SEL.visaSponsorship, visaValue);
+    }
 
     // Start date
     await page.locator(SEL.startDate).fill(profile.earliestStartDate);
@@ -148,7 +160,13 @@ class AcmePlatform extends Platform {
     }
 
     // Referral source
-    await selectOption(page, SEL.referral, profile.referralSource);
+    await selectOption(page, SEL.referral, acmeMapper.referral(profile.referralSource));
+    
+    // Handle "other" referral conditional
+    const referralOtherVisible = await waitFor(page, SEL.referralOtherGroup, 1000);
+    if (referralOtherVisible && profile.referralSource === 'other') {
+      await fillText(page, SEL.referralOther, 'Social media');
+    }
 
     // Cover letter
     await fillText(page, SEL.coverLetter, profile.coverLetter);
@@ -161,8 +179,9 @@ class AcmePlatform extends Platform {
   // ─────────────────────────────────────────────────────────
 
   private async fillStep4(page: Page): Promise<void> {
-    console.log('[Acme] Step 4: Review & Submit');
-
+    // Wait for review content to load
+    await delay(200, 400);
+    
     // Terms checkbox
     await page.locator(SEL.termsAgree).check();
     await delay(100, 200);
@@ -172,15 +191,22 @@ class AcmePlatform extends Platform {
   // Submit & Confirm
   // ─────────────────────────────────────────────────────────
 
-  protected async submit(page: Page): Promise<void> {
-    console.log('[Acme] Submitting application...');
-    await clickButton(page, SEL.submitBtn);
-    await waitFor(page, SEL.successPage, 10000);
+  protected async submit(ctx: HandlerContext): Promise<void> {
+    const { page, logger } = ctx;
+    
+    await retry(
+      async () => {
+        await clickButton(page, SEL.submitBtn);
+        await waitFor(page, SEL.successPage, 10000);
+      },
+      { maxAttempts: 2, baseDelay: 500 }
+    );
   }
 
-  protected async getConfirmation(page: Page): Promise<string> {
+  protected async getConfirmation(ctx: HandlerContext): Promise<string> {
+    const { page } = ctx;
     const id = await page.locator(SEL.confirmationId).textContent();
-    return id ?? '';
+    return id?.trim() ?? '';
   }
 
   // ─────────────────────────────────────────────────────────
@@ -188,8 +214,13 @@ class AcmePlatform extends Platform {
   // ─────────────────────────────────────────────────────────
 
   private async nextStep(page: Page): Promise<void> {
-    await clickButton(page, SEL.continueBtn);
-    await delay(300, 500); // Wait for step transition
+    await retry(
+      async () => {
+        await clickButton(page, SEL.continueBtn);
+        await delay(300, 500);
+      },
+      'quick'
+    );
   }
 }
 

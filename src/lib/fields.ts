@@ -1,36 +1,54 @@
 /**
  * Form field interaction helpers.
- * Abstracts common form operations with human-like behavior.
+ * Abstracts common form operations with human-like behavior and retry support.
  */
 
 import type { Page } from 'playwright';
-import { humanFill, humanClick, delay, waitFor } from './human';
+import { humanFill, humanClick, delay, waitFor, smoothScrollTo, microDelay } from './human';
+import { retry, RetryPredicates } from './retry';
 
 // ─────────────────────────────────────────────────────────────
 // Basic Inputs
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Fill a text input field
+ * Fill a text input field with retry
  */
 export async function fillText(page: Page, selector: string, value: string): Promise<void> {
-  await humanFill(page, selector, value);
+  await retry(
+    async () => {
+      await smoothScrollTo(page, selector);
+      await humanFill(page, selector, value);
+    },
+    { maxAttempts: 2, retryOn: RetryPredicates.onElementNotFound }
+  );
 }
 
 /**
- * Select an option from a dropdown
+ * Select an option from a dropdown with retry
  */
 export async function selectOption(page: Page, selector: string, value: string): Promise<void> {
-  await page.locator(selector).selectOption(value);
-  await delay(50, 150);
+  await retry(
+    async () => {
+      await smoothScrollTo(page, selector);
+      await page.locator(selector).selectOption(value);
+      await delay(50, 150);
+    },
+    'quick'
+  );
 }
 
 /**
  * Upload a file to a file input
  */
 export async function uploadFile(page: Page, selector: string, filePath: string): Promise<void> {
-  await page.locator(selector).setInputFiles(filePath);
-  await delay(100, 200);
+  await retry(
+    async () => {
+      await page.locator(selector).setInputFiles(filePath);
+      await delay(100, 200);
+    },
+    'quick'
+  );
 }
 
 // ─────────────────────────────────────────────────────────────

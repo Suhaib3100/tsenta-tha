@@ -1,10 +1,27 @@
 /**
  * Abstract base class for ATS platforms.
- * Template method pattern for consistent application flow.
+ * Template method pattern with logging, artifacts, and retry support.
  */
 
 import type { Page } from 'playwright';
 import type { UserProfile, ApplicationResult } from '../types';
+import { createLogger, measureStep, type Logger, type StepResult } from '../lib/logger';
+import { captureFailure, takeScreenshot } from '../lib/artifacts';
+import { retry } from '../lib/retry';
+
+// ─────────────────────────────────────────────────────────────
+// Handler Context
+// ─────────────────────────────────────────────────────────────
+
+export interface HandlerContext {
+  page: Page;
+  profile: UserProfile;
+  logger: Logger;
+  steps: StepResult[];
+  
+  /** Execute a step with timing and error tracking */
+  runStep: <T>(name: string, fn: () => Promise<T>) => Promise<T>;
+}
 
 // ─────────────────────────────────────────────────────────────
 // Abstract Platform
@@ -14,50 +31,94 @@ export abstract class Platform {
   /** Platform display name */
   abstract readonly name: string;
   
+  /** Platform identifier (lowercase) */
+  abstract readonly id: string;
+  
   /** URL pattern for detection */
   abstract readonly urlPattern: RegExp;
   
+  /** Get logger lazily to avoid constructor issues */
+  protected get logger(): Logger {
+    return createLogger(this.name);
+  }
+  
   /**
    * Main entry point - template method
-   * Handles timing, error catching, and result formatting
+   * Handles timing, error catching, artifacts, and result formatting
    */
   async run(page: Page, profile: UserProfile): Promise<ApplicationResult> {
     const start = Date.now();
+    const steps: StepResult[] = [];
+    
+    // Create handler context
+    const ctx: HandlerContext = {
+      page,
+      profile,
+      logger: this.logger,
+      steps,
+      runStep: async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
+        const stepStart = Date.now();
+        try {
+          const result = await fn();
+          steps.push({ name, success: true, duration: Date.now() - stepStart });
+          return result;
+        } catch (error) {
+          const duration = Date.now() - stepStart;
+          const message = error instanceof Error ? error.message : String(error);
+          steps.push({ name, success: false, duration, error: message });
+          throw error;
+        }
+      },
+    };
+    
+    this.logger.info(`Starting application for ${profile.firstName} ${profile.lastName}`);
     
     try {
-      console.log(`[${this.name}] Starting application...`);
+      // Fill form
+      await ctx.runStep('Fill form', () => this.fill(ctx));
       
-      await this.fill(page, profile);
-      await this.submit(page);
-      const confirmationId = await this.getConfirmation(page);
+      // Submit
+      await ctx.runStep('Submit application', () => this.submit(ctx));
       
-      console.log(`[${this.name}] Success: ${confirmationId}`);
+      // Get confirmation
+      const confirmationId = await ctx.runStep('Get confirmation', () => this.getConfirmation(ctx));
+      
+      // Success screenshot
+      const screenshotPath = await takeScreenshot(page, `${this.id}-success`);
+      
+      this.logger.success(`Application submitted: ${confirmationId}`);
       
       return {
         success: true,
         confirmationId,
+        screenshotPath: screenshotPath ?? undefined,
         durationMs: Date.now() - start,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`[${this.name}] Failed: ${message}`);
+      const err = error instanceof Error ? error : new Error(String(error));
+      
+      // Capture failure artifacts
+      const artifacts = await captureFailure(page, this.id, 'submission', err);
+      
+      this.logger.error(`Application failed: ${err.message}`);
       
       return {
         success: false,
-        error: message,
+        error: err.message,
+        screenshotPath: artifacts.screenshotPath,
         durationMs: Date.now() - start,
       };
     }
   }
   
   /** Fill all form fields with profile data */
-  protected abstract fill(page: Page, profile: UserProfile): Promise<void>;
+  protected abstract fill(ctx: HandlerContext): Promise<void>;
   
   /** Submit the application */
-  protected abstract submit(page: Page): Promise<void>;
+  protected abstract submit(ctx: HandlerContext): Promise<void>;
   
   /** Extract confirmation ID after successful submission */
-  protected abstract getConfirmation(page: Page): Promise<string>;
+  protected abstract getConfirmation(ctx: HandlerContext): Promise<string>;
 }
 
 // ─────────────────────────────────────────────────────────────

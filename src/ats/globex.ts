@@ -5,7 +5,7 @@
 
 import type { Page } from 'playwright';
 import type { UserProfile } from '../types';
-import { Platform, registerPlatform } from './base';
+import { Platform, registerPlatform, type HandlerContext } from './base';
 import {
   fillText,
   selectOption,
@@ -15,49 +15,9 @@ import {
   setSlider,
 } from '../lib/fields';
 import { delay, humanClick, humanFill, waitFor } from '../lib/human';
+import { retry } from '../lib/retry';
+import { globexMapper } from '../lib/mappings';
 import { resolve } from 'path';
-
-// ─────────────────────────────────────────────────────────────
-// Value Mappings (profile → Globex values)
-// ─────────────────────────────────────────────────────────────
-
-const EDUCATION_MAP: Record<string, string> = {
-  'high-school': 'hs',
-  'associates': 'assoc',
-  'bachelors': 'bs',
-  'masters': 'ms',
-  'phd': 'phd',
-};
-
-const EXPERIENCE_MAP: Record<string, string> = {
-  '0-1': 'intern',
-  '1-3': 'junior',
-  '3-5': 'mid',
-  '5-10': 'senior',
-  '10+': 'staff',
-};
-
-const SKILLS_MAP: Record<string, string> = {
-  'javascript': 'js',
-  'typescript': 'ts',
-  'python': 'py',
-  'nodejs': 'node',
-  'react': 'react',
-  'sql': 'sql',
-  'git': 'git',
-  'docker': 'docker',
-  'aws': 'aws',
-  'graphql': 'graphql',
-};
-
-const SOURCE_MAP: Record<string, string> = {
-  'linkedin': 'linkedin',
-  'company-website': 'website',
-  'job-board': 'board',
-  'referral': 'referral',
-  'university': 'university',
-  'other': 'other',
-};
 
 // ─────────────────────────────────────────────────────────────
 // Selectors
@@ -68,6 +28,10 @@ const SEL = {
   section1: '[data-section="contact"] .section-header',
   section2: '[data-section="qualifications"] .section-header',
   section3: '[data-section="additional"] .section-header',
+  
+  // Section bodies (for checking open state)
+  section2Body: '[data-section="qualifications"] .section-body',
+  section3Body: '[data-section="additional"] .section-body',
 
   // Section 1: Contact
   firstName: '#g-fname',
@@ -80,18 +44,24 @@ const SEL = {
 
   // Section 2: Qualifications
   resume: '#g-resume',
+  resumeZone: '#g-resume-zone',
   experience: '#g-experience',
   degree: '#g-degree',
   school: '#g-school',
+  schoolSpinner: '#g-school-spinner',
   schoolResults: '#g-school-results',
   skillsContainer: '#g-skills',
 
   // Section 3: Additional
   workAuthToggle: '#g-work-auth-toggle',
+  visaBlock: '#g-visa-block',
   visaToggle: '#g-visa-toggle',
   startDate: '#g-start-date',
   salary: '#g-salary',
+  salaryDisplay: '#g-salary-display',
   source: '#g-source',
+  sourceOtherBlock: '#g-source-other-block',
+  sourceOther: '#g-source-other',
   motivation: '#g-motivation',
 
   // Submit
@@ -108,13 +78,16 @@ const SEL = {
 // ─────────────────────────────────────────────────────────────
 
 class GlobexPlatform extends Platform {
-  readonly name = 'Globex Corporation';
+  readonly name = 'Globex Corp';
+  readonly id = 'globex';
   readonly urlPattern = /globex/i;
 
-  protected async fill(page: Page, profile: UserProfile): Promise<void> {
-    await this.fillSection1(page, profile);
-    await this.fillSection2(page, profile);
-    await this.fillSection3(page, profile);
+  protected async fill(ctx: HandlerContext): Promise<void> {
+    const { page, profile } = ctx;
+    
+    await ctx.runStep('Section 1: Contact', () => this.fillSection1(page, profile));
+    await ctx.runStep('Section 2: Qualifications', () => this.fillSection2(page, profile));
+    await ctx.runStep('Section 3: Additional', () => this.fillSection3(page, profile));
   }
 
   // ─────────────────────────────────────────────────────────
@@ -122,17 +95,16 @@ class GlobexPlatform extends Platform {
   // ─────────────────────────────────────────────────────────
 
   private async fillSection1(page: Page, profile: UserProfile): Promise<void> {
-    console.log('[Globex] Section 1: Contact Details');
-
     await fillText(page, SEL.firstName, profile.firstName);
     await fillText(page, SEL.lastName, profile.lastName);
     await fillText(page, SEL.email, profile.email);
     await fillText(page, SEL.phone, profile.phone);
 
-    // Globex uses 'city' instead of 'location' - extract city from profile.location
+    // Globex uses 'city' instead of 'location'
     const city = profile.location.split(',')[0].trim();
     await fillText(page, SEL.city, city);
 
+    // Optional fields
     if (profile.linkedIn) {
       await fillText(page, SEL.linkedin, profile.linkedIn);
     }
@@ -146,57 +118,78 @@ class GlobexPlatform extends Platform {
   // ─────────────────────────────────────────────────────────
 
   private async fillSection2(page: Page, profile: UserProfile): Promise<void> {
-    console.log('[Globex] Section 2: Qualifications');
+    // Open accordion (check if not already open)
+    await this.ensureSectionOpen(page, SEL.section2, SEL.section2Body);
 
-    // Open accordion
-    await openAccordion(page, SEL.section2);
-
-    // Resume
+    // Resume with retry
     const resumePath = resolve(process.cwd(), 'fixtures/sample-resume.pdf');
-    await uploadFile(page, SEL.resume, resumePath);
+    await retry(() => uploadFile(page, SEL.resume, resumePath), 'standard');
 
-    // Experience & Degree (mapped values)
-    const expValue = EXPERIENCE_MAP[profile.experienceLevel] ?? profile.experienceLevel;
-    await selectOption(page, SEL.experience, expValue);
+    // Experience & Degree (using centralized mappings)
+    await selectOption(page, SEL.experience, globexMapper.experience(profile.experienceLevel));
+    await selectOption(page, SEL.degree, globexMapper.education(profile.education));
 
-    const degreeValue = EDUCATION_MAP[profile.education] ?? profile.education;
-    await selectOption(page, SEL.degree, degreeValue);
-
-    // Async typeahead for school
+    // Async typeahead for school with fallback
     await this.fillAsyncSchool(page, profile.school);
 
-    // Skills chips
+    // Skills chips (only select valid ones)
     await this.selectSkillChips(page, profile.skills);
   }
 
   /**
-   * Fill async typeahead for school field
+   * Fill async typeahead with fallback to first result
    */
   private async fillAsyncSchool(page: Page, school: string): Promise<void> {
-    // Type partial to trigger search
-    await humanFill(page, SEL.school, school.substring(0, 5));
+    await retry(
+      async () => {
+        // Type partial to trigger search
+        await humanFill(page, SEL.school, school.substring(0, 5));
 
-    // Wait for async results (300-800ms delay in mock)
-    await waitFor(page, `${SEL.schoolResults}.open`, 5000);
-    await delay(300, 500);
+        // Wait for spinner to appear and disappear (async search)
+        const spinnerAppeared = await waitFor(page, `${SEL.schoolSpinner}.loading`, 2000);
+        if (spinnerAppeared) {
+          // Wait for spinner to disappear
+          await page.locator(`${SEL.schoolSpinner}.loading`).waitFor({ state: 'hidden', timeout: 5000 });
+        }
 
-    // Click matching result
-    const result = page.locator(`${SEL.schoolResults} li`).filter({ hasText: school });
-    await result.first().click();
-    await delay(100, 200);
+        // Wait for results to appear
+        await waitFor(page, `${SEL.schoolResults}.open`, 5000);
+        await delay(200, 400);
+
+        // Try exact match first
+        const exactMatch = page.locator(`${SEL.schoolResults} li`).filter({ hasText: school });
+        if (await exactMatch.count() > 0) {
+          await exactMatch.first().click();
+        } else {
+          // Fallback: select first valid result
+          const firstResult = page.locator(`${SEL.schoolResults} li`).first();
+          if (await firstResult.count() > 0) {
+            await firstResult.click();
+          }
+        }
+        
+        await delay(100, 200);
+      },
+      'aggressive'
+    );
   }
 
   /**
-   * Select skill chips by clicking them
+   * Select skill chips safely (skip unknown skills)
    */
   private async selectSkillChips(page: Page, skills: string[]): Promise<void> {
-    for (const skill of skills) {
-      const chipValue = SKILLS_MAP[skill] ?? skill;
+    const mappedSkills = globexMapper.skills(skills);
+    
+    for (const chipValue of mappedSkills) {
       const chip = page.locator(`${SEL.skillsContainer} .chip[data-skill="${chipValue}"]`);
       
+      // Only click if chip exists
       if (await chip.count() > 0) {
-        await chip.click();
-        await delay(80, 150);
+        const isSelected = await chip.evaluate(el => el.classList.contains('selected'));
+        if (!isSelected) {
+          await chip.click();
+          await delay(80, 150);
+        }
       }
     }
   }
@@ -206,20 +199,29 @@ class GlobexPlatform extends Platform {
   // ─────────────────────────────────────────────────────────
 
   private async fillSection3(page: Page, profile: UserProfile): Promise<void> {
-    console.log('[Globex] Section 3: Additional Information');
-
     // Open accordion
-    await openAccordion(page, SEL.section3);
+    await this.ensureSectionOpen(page, SEL.section3, SEL.section3Body);
 
-    // Work authorization toggle
+    // Work authorization toggle (check current state first)
     if (profile.workAuthorized) {
-      await humanClick(page, SEL.workAuthToggle);
-      await delay(200, 300);
+      const toggle = page.locator(SEL.workAuthToggle);
+      const isActive = await toggle.evaluate(el => el.classList.contains('active'));
+      
+      if (!isActive) {
+        await humanClick(page, SEL.workAuthToggle);
+        await delay(200, 300);
+      }
 
-      // Visa toggle appears after work auth
-      if (profile.requiresVisa) {
-        await humanClick(page, SEL.visaToggle);
-        await delay(100, 200);
+      // Visa toggle (conditional - wait for block to appear)
+      const visaBlockVisible = await waitFor(page, `${SEL.visaBlock}.visible`, 2000);
+      if (visaBlockVisible && profile.requiresVisa) {
+        const visaToggle = page.locator(SEL.visaToggle);
+        const visaActive = await visaToggle.evaluate(el => el.classList.contains('active'));
+        
+        if (!visaActive) {
+          await humanClick(page, SEL.visaToggle);
+          await delay(100, 200);
+        }
       }
     }
 
@@ -227,39 +229,82 @@ class GlobexPlatform extends Platform {
     await page.locator(SEL.startDate).fill(profile.earliestStartDate);
     await delay(100, 200);
 
-    // Salary slider
+    // Salary slider (with input+change events for proper update)
     if (profile.salaryExpectation) {
       const salary = parseInt(profile.salaryExpectation, 10);
-      await setSlider(page, SEL.salary, salary);
+      await this.setSalarySlider(page, salary);
     }
 
     // Source (mapped value)
-    const sourceValue = SOURCE_MAP[profile.referralSource] ?? profile.referralSource;
-    await selectOption(page, SEL.source, sourceValue);
+    await selectOption(page, SEL.source, globexMapper.referral(profile.referralSource));
+    
+    // Handle "other" source conditional
+    const sourceOtherVisible = await waitFor(page, `${SEL.sourceOtherBlock}.visible`, 1000);
+    if (sourceOtherVisible && profile.referralSource === 'other') {
+      await fillText(page, SEL.sourceOther, 'Social media');
+    }
 
     // Motivation (cover letter)
     await fillText(page, SEL.motivation, profile.coverLetter);
+  }
+
+  /**
+   * Set salary slider with proper events
+   */
+  private async setSalarySlider(page: Page, value: number): Promise<void> {
+    const slider = page.locator(SEL.salary);
+    
+    // Set value and dispatch events
+    await slider.evaluate((el, val) => {
+      const input = el as HTMLInputElement;
+      input.value = String(val);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }, value);
+    
+    await delay(100, 200);
+  }
+
+  /**
+   * Ensure accordion section is open
+   */
+  private async ensureSectionOpen(page: Page, headerSel: string, bodySel: string): Promise<void> {
+    const body = page.locator(bodySel);
+    const isOpen = await body.evaluate(el => el.classList.contains('open'));
+    
+    if (!isOpen) {
+      await openAccordion(page, headerSel);
+    }
   }
 
   // ─────────────────────────────────────────────────────────
   // Submit & Confirm
   // ─────────────────────────────────────────────────────────
 
-  protected async submit(page: Page): Promise<void> {
-    console.log('[Globex] Submitting application...');
+  protected async submit(ctx: HandlerContext): Promise<void> {
+    const { page } = ctx;
+    
+    await retry(
+      async () => {
+        // Consent checkbox
+        const consent = page.locator(SEL.consent);
+        if (!await consent.isChecked()) {
+          await consent.check();
+          await delay(100, 200);
+        }
 
-    // Consent checkbox
-    await page.locator(SEL.consent).check();
-    await delay(100, 200);
-
-    // Submit
-    await clickButton(page, SEL.submitBtn);
-    await waitFor(page, SEL.confirmation, 10000);
+        // Submit
+        await clickButton(page, SEL.submitBtn);
+        await waitFor(page, SEL.confirmation, 10000);
+      },
+      { maxAttempts: 2, baseDelay: 500 }
+    );
   }
 
-  protected async getConfirmation(page: Page): Promise<string> {
+  protected async getConfirmation(ctx: HandlerContext): Promise<string> {
+    const { page } = ctx;
     const ref = await page.locator(SEL.confirmationRef).textContent();
-    return ref ?? '';
+    return ref?.trim() ?? '';
   }
 }
 
