@@ -233,7 +233,7 @@ export async function fillAsyncTypeahead(
  * Simple fuzzy scoring - higher is better match.
  * Prioritizes: exact > starts with > words match > contains
  */
-function fuzzyScore(needle: string, haystack: string): number {
+export function fuzzyScore(needle: string, haystack: string): number {
   if (haystack === needle) return 100;
   if (haystack.startsWith(needle)) return 80;
   

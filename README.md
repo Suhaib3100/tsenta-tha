@@ -31,6 +31,35 @@ That's it! The `start` command:
 3. Runs the automation
 4. Kills the server when done
 
+### Testing
+
+```bash
+# Run tests once
+pnpm test:run
+
+# Watch mode
+pnpm test
+
+# With coverage
+pnpm test:coverage
+```
+
+**60 tests** covering:
+- Human behavior utilities (`randomBetween`, `gaussianRandom`, `shouldPaste`)
+- Fuzzy scoring algorithm for typeahead matching
+- Retry engine with exponential backoff
+- Circuit breaker state machine
+- Retry predicates for error classification
+
+```
+tests/
+├── core/
+│   └── retry.test.ts      # Retry engine, circuit breaker
+└── engine/
+    ├── fields.test.ts     # Fuzzy scoring algorithm
+    └── human.test.ts      # Random utils, paste detection
+```
+
 ---
 
 ## Architecture

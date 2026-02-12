@@ -6,7 +6,10 @@
   "scripts": {
     "serve": "npx serve mock-ats -p 3939",
     "automate": "npx tsx src/automator.ts",
-    "start": "concurrently -k -s first \"pnpm serve\" \"wait-on http://localhost:3939 && pnpm automate\""
+    "start": "concurrently -k -s first \"pnpm serve\" \"wait-on http://localhost:3939 && pnpm automate\"",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "chalk": "^5.6.2",
@@ -19,6 +22,7 @@
     "serve": "^14.2.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
+    "vitest": "^4.0.18",
     "wait-on": "^9.0.4"
   }
 }

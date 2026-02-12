@@ -6,3 +6,6 @@ playwright-report/
 *.log
 .ref
 pnpm-lock.yaml
+
+# Artifacts (screenshots, reports, videos)
+artifacts/

@@ -317,7 +317,7 @@ export async function humanClick(page: Page, selector: string): Promise<void> {
 /**
  * Patterns that humans typically paste rather than type
  */
-const PASTE_PATTERNS = [
+export const PASTE_PATTERNS = [
   /^https?:\/\//i,           // URLs
   /^www\./i,                  // URLs without protocol
   /linkedin\.com/i,           // LinkedIn URLs
@@ -329,7 +329,7 @@ const PASTE_PATTERNS = [
  * Should this text be pasted instead of typed?
  * URLs and emails are typically copy-pasted by humans.
  */
-function shouldPaste(text: string): boolean {
+export function shouldPaste(text: string): boolean {
   // Long text (cover letters) - 50% chance to paste
   if (text.length > 200) {
     return Math.random() > 0.5;
