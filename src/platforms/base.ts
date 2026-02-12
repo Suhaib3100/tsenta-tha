@@ -5,9 +5,9 @@
 
 import type { Page } from 'playwright';
 import type { UserProfile, ApplicationResult } from '../types';
-import { createLogger, measureStep, type Logger, type StepResult } from '../lib/logger';
-import { captureFailure, takeScreenshot } from '../lib/artifacts';
-import { retry } from '../lib/retry';
+import { createLog, type Log, type StepResult } from '../core/log';
+import { captureFailure, takeScreenshot } from '../core/artifacts';
+import { retry } from '../core/retry';
 
 // ─────────────────────────────────────────────────────────────
 // Handler Context
@@ -16,7 +16,7 @@ import { retry } from '../lib/retry';
 export interface HandlerContext {
   page: Page;
   profile: UserProfile;
-  logger: Logger;
+  logger: Log;
   steps: StepResult[];
   
   /** Execute a step with timing and error tracking */
@@ -38,8 +38,8 @@ export abstract class Platform {
   abstract readonly urlPattern: RegExp;
   
   /** Get logger lazily to avoid constructor issues */
-  protected get logger(): Logger {
-    return createLogger(this.name);
+  protected get logger(): Log {
+    return createLog(this.name);
   }
   
   /**

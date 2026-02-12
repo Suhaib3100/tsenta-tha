@@ -8,6 +8,8 @@
     "start": "npx tsx src/automator.ts"
   },
   "dependencies": {
+    "chalk": "^5.6.2",
+    "ora": "^9.3.0",
     "playwright": "^1.52.0"
   },
   "devDependencies": {

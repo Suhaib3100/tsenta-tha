@@ -5,7 +5,7 @@
 
 import type { Page } from 'playwright';
 import { humanFill, humanClick, delay, waitFor, smoothScrollTo, microDelay } from './human';
-import { retry, RetryPredicates } from './retry';
+import { retry, RetryPredicates } from '../core/retry';
 
 // ─────────────────────────────────────────────────────────────
 // Basic Inputs

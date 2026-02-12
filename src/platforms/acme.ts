@@ -14,10 +14,10 @@ import {
   clickRadio,
   fillTypeahead,
   clickButton,
-} from '../lib/fields';
-import { delay, waitFor } from '../lib/human';
-import { retry } from '../lib/retry';
-import { acmeMapper } from '../lib/mappings';
+} from '../engine/fields';
+import { delay, waitFor } from '../engine/human';
+import { retry } from '../core/retry';
+import { acmeMapper } from '../engine/mappings';
 import { resolve } from 'path';
 
 // ─────────────────────────────────────────────────────────────

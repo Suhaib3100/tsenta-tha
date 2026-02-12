@@ -3,7 +3,7 @@
  * Provides robust error recovery for flaky operations.
  */
 
-import { delay } from './human';
+import { delay } from '../engine/human';
 
 // ─────────────────────────────────────────────────────────────
 // Types

@@ -4,7 +4,7 @@
  */
 
 import type { Browser, BrowserContext, Page } from 'playwright';
-import { getRandomViewport, getRandomUserAgent, applyStealthPatches } from './human';
+import { getRandomViewport, getRandomUserAgent, applyStealthPatches } from '../engine/human';
 
 // ─────────────────────────────────────────────────────────────
 // Stealth Context Options

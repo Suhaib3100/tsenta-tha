@@ -13,10 +13,10 @@ import {
   openAccordion,
   clickButton,
   setSlider,
-} from '../lib/fields';
-import { delay, humanClick, humanFill, waitFor } from '../lib/human';
-import { retry } from '../lib/retry';
-import { globexMapper } from '../lib/mappings';
+} from '../engine/fields';
+import { delay, humanClick, humanFill, waitFor } from '../engine/human';
+import { retry } from '../core/retry';
+import { globexMapper } from '../engine/mappings';
 import { resolve } from 'path';
 
 // ─────────────────────────────────────────────────────────────
