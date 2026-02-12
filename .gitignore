@@ -5,7 +5,6 @@ playwright-report/
 .DS_Store
 *.log
 .ref
-pnpm-lock.yaml
 
 # Artifacts (screenshots, reports, videos)
 artifacts/
