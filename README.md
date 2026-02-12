@@ -64,27 +64,54 @@ tests/
 
 ## Architecture
 
+```mermaid
+graph TB
+    subgraph Automator["🎯 Automator"]
+        A[automator.ts] --> B[Load Profile]
+        B --> C[Create Stealth Context]
+        C --> D[Run Platform Handlers]
+    end
+    
+    subgraph Core["⚙️ Core"]
+        E[log.ts<br/>Ora spinners]
+        F[retry.ts<br/>Backoff + Circuit]
+        G[stealth.ts<br/>Anti-detection]
+        H[artifacts.ts<br/>Screenshots]
+    end
+    
+    subgraph Engine["🤖 Engine"]
+        I[human.ts<br/>Bezier, typos, paste]
+        J[fields.ts<br/>Form helpers]
+        K[mappings.ts<br/>Value transforms]
+    end
+    
+    subgraph Platforms["🏢 Platforms"]
+        L[base.ts<br/>Abstract Platform]
+        L --> M[acme.ts<br/>4-step wizard]
+        L --> N[globex.ts<br/>Accordion form]
+    end
+    
+    D --> Core
+    D --> Engine
+    D --> Platforms
 ```
-src/
-├── core/                 # Infrastructure layer
-│   ├── log.ts           # Ora spinners + clean CLI output
-│   ├── retry.ts         # Exponential backoff + circuit breaker
-│   ├── stealth.ts       # Anti-detection patches
-│   └── artifacts.ts     # Screenshots, videos, error reports
-│
-├── engine/              # Automation engine
-│   ├── human.ts         # Human-like behavior (Bezier curves, typos)
-│   ├── fields.ts        # Form field helpers with retry
-│   └── mappings.ts      # Platform-specific value transforms
-│
-├── platforms/           # ATS implementations
-│   ├── base.ts          # Abstract Platform class
-│   ├── acme.ts          # Acme Corp (4-step wizard)
-│   └── globex.ts        # Globex Corp (accordion form)
-│
-├── automator.ts         # Main orchestrator
-├── profile.ts           # Candidate profile data
-└── types.ts             # TypeScript definitions
+
+### Execution Flow
+
+```mermaid
+flowchart LR
+    A([Start]) --> B[Load Profile]
+    B --> C[Create Stealth Context]
+    C --> D{Each URL}
+    D --> E[Detect Platform]
+    E --> F[Fill Form]
+    F --> G[Submit]
+    G --> H{Success?}
+    H -->|Yes| I[📸 Screenshot]
+    H -->|No| J[🔴 Error Report]
+    I --> D
+    J --> D
+    D -->|Done| K([Summary])
 ```
 
 ### Design Patterns
@@ -129,6 +156,15 @@ registerPlatform(new WorkdayPlatform());
 
 ### Human-Like Behavior
 
+```mermaid
+pie showData
+    title Input Behavior Distribution
+    "Type all" : 25
+    "Paste from doc" : 30
+    "Paste then fix typo" : 25
+    "Type start, paste rest" : 20
+```
+
 | Feature | Implementation |
 |---------|---------------|
 | **Smart paste vs type** | Auto-detects URLs/emails → pastes; names/text → types character-by-character |
@@ -153,6 +189,18 @@ registerPlatform(new WorkdayPlatform());
 | **User agent rotation** | Realistic Chrome UA strings |
 
 ### Reliability
+
+```mermaid
+stateDiagram-v2
+    [*] --> Closed
+    Closed --> Closed : Success (reset count)
+    Closed --> Open : 5 failures
+    Open --> HalfOpen : After 30s
+    HalfOpen --> Closed : Success
+    HalfOpen --> Open : Failure
+    
+    note right of Open : Fail fast\nNo retries
+```
 
 | Feature | Details |
 |---------|---------|
@@ -190,6 +238,25 @@ registerPlatform(new WorkdayPlatform());
 ---
 
 ## Platforms Supported
+
+```mermaid
+mindmap
+  root((Platforms))
+    Acme Corp
+      4-step wizard
+      Progress bar
+      Sync typeahead
+      Checkboxes for skills
+      Radio buttons
+      File upload
+    Globex Corp
+      Accordion layout
+      Async typeahead
+      Shuffled results
+      Chip selectors
+      Toggle switches
+      Range slider
+```
 
 ### Acme Corp (`/acme.html`)
 - 4-step wizard with progress bar
