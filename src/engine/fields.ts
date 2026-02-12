@@ -128,7 +128,8 @@ export async function selectChips(
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Fill a synchronous typeahead (dropdown appears immediately)
+ * Smart typeahead that progressively types until results appear.
+ * More efficient than fixed substring - adapts to search requirements.
  */
 export async function fillTypeahead(
   page: Page,
@@ -136,40 +137,120 @@ export async function fillTypeahead(
   dropdownSelector: string,
   value: string
 ): Promise<void> {
-  // Type partial text to trigger dropdown
-  await humanFill(page, inputSelector, value.substring(0, 3));
-  await delay(150, 300);
+  const input = page.locator(inputSelector);
   
-  // Wait for dropdown
-  await waitFor(page, dropdownSelector);
+  // Type progressively until dropdown appears (min 2 chars, max 8)
+  for (let len = 2; len <= Math.min(value.length, 8); len++) {
+    await input.fill(value.substring(0, len));
+    await microDelay();
+    
+    // Check if dropdown is visible
+    const dropdown = page.locator(dropdownSelector);
+    if (await dropdown.isVisible({ timeout: 300 }).catch(() => false)) {
+      break;
+    }
+  }
   
-  // Click matching option
-  const option = page.locator(`${dropdownSelector} >> text="${value}"`);
-  await option.first().click();
-  await delay(100, 200);
+  // Wait for dropdown to be interactive
+  await page.locator(dropdownSelector).waitFor({ state: 'visible', timeout: 3000 });
+  
+  // Smart match: exact > contains > first
+  const exactMatch = page.locator(`${dropdownSelector} li`).filter({ hasText: new RegExp(`^${value}$`, 'i') });
+  const containsMatch = page.locator(`${dropdownSelector} li`).filter({ hasText: value });
+  const firstMatch = page.locator(`${dropdownSelector} li`).first();
+  
+  if (await exactMatch.count() > 0) {
+    await exactMatch.first().click();
+  } else if (await containsMatch.count() > 0) {
+    await containsMatch.first().click();
+  } else if (await firstMatch.count() > 0) {
+    await firstMatch.click();
+  }
 }
 
 /**
- * Fill an async typeahead (with loading delay)
+ * Async typeahead with spinner awareness - waits for loading state to complete.
+ * No hardcoded delays - uses actual DOM state.
  */
 export async function fillAsyncTypeahead(
   page: Page,
   inputSelector: string,
   resultsSelector: string,
   value: string,
-  timeout = 3000
+  spinnerSelector?: string,
+  timeout = 5000
 ): Promise<void> {
-  // Type to trigger search
-  await humanFill(page, inputSelector, value.substring(0, 4));
+  const input = page.locator(inputSelector);
   
-  // Wait for results to load
-  await waitFor(page, resultsSelector, timeout);
-  await delay(200, 400);
+  // Type progressively (async usually needs more chars for good results)
+  const searchTerm = value.length > 6 
+    ? value.split(' ')[0] // Use first word for long names
+    : value.substring(0, Math.min(value.length, 5));
   
-  // Click matching result
-  const result = page.locator(`${resultsSelector} >> text="${value}"`);
-  await result.first().click();
-  await delay(100, 200);
+  await input.fill(searchTerm);
+  
+  // Wait for spinner to appear then disappear (if spinner selector provided)
+  if (spinnerSelector) {
+    const spinner = page.locator(spinnerSelector);
+    // Wait for loading to complete (either spinner appears then hides, or results appear)
+    await Promise.race([
+      (async () => {
+        await spinner.waitFor({ state: 'visible', timeout: 1000 }).catch(() => {});
+        await spinner.waitFor({ state: 'hidden', timeout: timeout });
+      })(),
+      page.locator(`${resultsSelector}.open`).waitFor({ state: 'visible', timeout })
+    ]);
+  }
+  
+  // Wait for results container to open
+  await page.locator(`${resultsSelector}.open`).waitFor({ state: 'visible', timeout });
+  
+  // Find best match using fuzzy scoring
+  const results = page.locator(`${resultsSelector} li:not(.typeahead-no-results)`);
+  const count = await results.count();
+  
+  if (count === 0) {
+    throw new Error(`No results for: ${value}`);
+  }
+  
+  // Score each result
+  let bestIndex = 0;
+  let bestScore = -1;
+  
+  for (let i = 0; i < count; i++) {
+    const text = await results.nth(i).textContent() || '';
+    const score = fuzzyScore(value.toLowerCase(), text.toLowerCase());
+    if (score > bestScore) {
+      bestScore = score;
+      bestIndex = i;
+    }
+  }
+  
+  await results.nth(bestIndex).click();
+}
+
+/**
+ * Simple fuzzy scoring - higher is better match.
+ * Prioritizes: exact > starts with > words match > contains
+ */
+function fuzzyScore(needle: string, haystack: string): number {
+  if (haystack === needle) return 100;
+  if (haystack.startsWith(needle)) return 80;
+  
+  // Check if all words in needle appear in haystack
+  const needleWords = needle.split(/\s+/);
+  const allWordsMatch = needleWords.every(w => haystack.includes(w));
+  if (allWordsMatch) return 60;
+  
+  // Partial contains
+  if (haystack.includes(needle)) return 40;
+  
+  // Count matching characters
+  let matches = 0;
+  for (const char of needle) {
+    if (haystack.includes(char)) matches++;
+  }
+  return (matches / needle.length) * 20;
 }
 
 // ─────────────────────────────────────────────────────────────

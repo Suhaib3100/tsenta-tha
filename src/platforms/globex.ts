@@ -13,8 +13,9 @@ import {
   openAccordion,
   clickButton,
   setSlider,
+  fillAsyncTypeahead,
 } from '../engine/fields';
-import { delay, humanClick, humanFill, waitFor } from '../engine/human';
+import { delay, waitFor } from '../engine/human';
 import { retry } from '../core/retry';
 import { globexMapper } from '../engine/mappings';
 import { resolve } from 'path';
@@ -129,68 +130,39 @@ class GlobexPlatform extends Platform {
     await selectOption(page, SEL.experience, globexMapper.experience(profile.experienceLevel));
     await selectOption(page, SEL.degree, globexMapper.education(profile.education));
 
-    // Async typeahead for school with fallback
-    await this.fillAsyncSchool(page, profile.school);
+    // Async typeahead for school - uses efficient fuzzy matching
+    await fillAsyncTypeahead(
+      page,
+      SEL.school,
+      SEL.schoolResults,
+      profile.school,
+      SEL.schoolSpinner
+    );
 
     // Skills chips (only select valid ones)
     await this.selectSkillChips(page, profile.skills);
   }
 
   /**
-   * Fill async typeahead with fallback to first result
-   */
-  private async fillAsyncSchool(page: Page, school: string): Promise<void> {
-    await retry(
-      async () => {
-        // Type partial to trigger search
-        await humanFill(page, SEL.school, school.substring(0, 5));
-
-        // Wait for spinner to appear and disappear (async search)
-        const spinnerAppeared = await waitFor(page, `${SEL.schoolSpinner}.loading`, 2000);
-        if (spinnerAppeared) {
-          // Wait for spinner to disappear
-          await page.locator(`${SEL.schoolSpinner}.loading`).waitFor({ state: 'hidden', timeout: 5000 });
-        }
-
-        // Wait for results to appear
-        await waitFor(page, `${SEL.schoolResults}.open`, 5000);
-        await delay(200, 400);
-
-        // Try exact match first
-        const exactMatch = page.locator(`${SEL.schoolResults} li`).filter({ hasText: school });
-        if (await exactMatch.count() > 0) {
-          await exactMatch.first().click();
-        } else {
-          // Fallback: select first valid result
-          const firstResult = page.locator(`${SEL.schoolResults} li`).first();
-          if (await firstResult.count() > 0) {
-            await firstResult.click();
-          }
-        }
-        
-        await delay(100, 200);
-      },
-      'aggressive'
-    );
-  }
-
-  /**
-   * Select skill chips safely (skip unknown skills)
+   * Select skill chips efficiently using batch evaluation.
+   * First identifies which chips need clicking, then clicks them with minimal delays.
    */
   private async selectSkillChips(page: Page, skills: string[]): Promise<void> {
     const mappedSkills = globexMapper.skills(skills);
     
+    // First pass: identify unselected chips that exist (batch evaluation)
+    const chipsToClick: string[] = [];
+    
     for (const chipValue of mappedSkills) {
-      const chip = page.locator(`${SEL.skillsContainer} .chip[data-skill="${chipValue}"]`);
-      
-      // Only click if chip exists
+      const chip = page.locator(`${SEL.skillsContainer} .chip[data-skill="${chipValue}"]:not(.selected)`);
       if (await chip.count() > 0) {
-        const isSelected = await chip.evaluate(el => el.classList.contains('selected'));
-        if (!isSelected) {
-          await chip.click();
-          await delay(80, 150);
-        }
+        chipsToClick.push(chipValue);
       }
+    }
+    
+    // Second pass: click all unselected chips with minimal delay
+    for (const chipValue of chipsToClick) {
+      await page.locator(`${SEL.skillsContainer} .chip[data-skill="${chipValue}"]`).click();
     }
   }
 
@@ -202,49 +174,52 @@ class GlobexPlatform extends Platform {
     // Open accordion
     await this.ensureSectionOpen(page, SEL.section3, SEL.section3Body);
 
-    // Work authorization toggle (check current state first)
+    // Work authorization toggle - smart state check
     if (profile.workAuthorized) {
       const toggle = page.locator(SEL.workAuthToggle);
       const isActive = await toggle.evaluate(el => el.classList.contains('active'));
       
       if (!isActive) {
-        await humanClick(page, SEL.workAuthToggle);
-        await delay(200, 300);
+        await toggle.click();
+        // Wait for state change instead of fixed delay
+        await toggle.locator('.active').waitFor({ state: 'attached', timeout: 1000 }).catch(() => {});
       }
 
-      // Visa toggle (conditional - wait for block to appear)
-      const visaBlockVisible = await waitFor(page, `${SEL.visaBlock}.visible`, 2000);
-      if (visaBlockVisible && profile.requiresVisa) {
-        const visaToggle = page.locator(SEL.visaToggle);
-        const visaActive = await visaToggle.evaluate(el => el.classList.contains('active'));
-        
-        if (!visaActive) {
-          await humanClick(page, SEL.visaToggle);
-          await delay(100, 200);
+      // Visa toggle (conditional - smart wait)
+      const visaBlock = page.locator(`${SEL.visaBlock}.visible`);
+      if (await visaBlock.isVisible({ timeout: 1000 }).catch(() => false)) {
+        if (profile.requiresVisa) {
+          const visaToggle = page.locator(SEL.visaToggle);
+          const visaActive = await visaToggle.evaluate(el => el.classList.contains('active'));
+          
+          if (!visaActive) {
+            await visaToggle.click();
+          }
         }
       }
     }
 
-    // Start date
+    // Start date - direct fill, no delay needed
     await page.locator(SEL.startDate).fill(profile.earliestStartDate);
-    await delay(100, 200);
 
-    // Salary slider (with input+change events for proper update)
+    // Salary slider
     if (profile.salaryExpectation) {
       const salary = parseInt(profile.salaryExpectation, 10);
       await this.setSalarySlider(page, salary);
     }
 
-    // Source (mapped value)
+    // Source
     await selectOption(page, SEL.source, globexMapper.referral(profile.referralSource));
     
-    // Handle "other" source conditional
-    const sourceOtherVisible = await waitFor(page, `${SEL.sourceOtherBlock}.visible`, 1000);
-    if (sourceOtherVisible && profile.referralSource === 'other') {
-      await fillText(page, SEL.sourceOther, 'Social media');
+    // Handle "other" source conditional - smart visibility check
+    const sourceOtherBlock = page.locator(`${SEL.sourceOtherBlock}.visible`);
+    if (await sourceOtherBlock.isVisible({ timeout: 500 }).catch(() => false)) {
+      if (profile.referralSource === 'other') {
+        await fillText(page, SEL.sourceOther, 'Social media');
+      }
     }
 
-    // Motivation (cover letter)
+    // Motivation
     await fillText(page, SEL.motivation, profile.coverLetter);
   }
 

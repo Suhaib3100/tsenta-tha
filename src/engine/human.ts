@@ -226,10 +226,12 @@ export async function humanType(
   selectorOrText: string,
   text?: string
 ): Promise<void> {
-  const locator = 'locator' in target 
-    ? target.locator(selectorOrText) 
+  // If text is provided, selectorOrText is a selector; otherwise it's the text itself
+  const isSelector = text !== undefined;
+  const locator = isSelector
+    ? (target as Page).locator(selectorOrText)
     : target as Locator;
-  const content = text ?? selectorOrText;
+  const content = isSelector ? text : selectorOrText;
   
   // Focus the element first
   await locator.focus();
@@ -313,9 +315,71 @@ export async function humanClick(page: Page, selector: string): Promise<void> {
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Fill input with realistic behavior: click → clear → type
+ * Patterns that humans typically paste rather than type
+ */
+const PASTE_PATTERNS = [
+  /^https?:\/\//i,           // URLs
+  /^www\./i,                  // URLs without protocol
+  /linkedin\.com/i,           // LinkedIn URLs
+  /github\.com/i,             // GitHub URLs
+  /@.*\..{2,}/,               // Emails (rough pattern)
+];
+
+/**
+ * Should this text be pasted instead of typed?
+ * URLs and emails are typically copy-pasted by humans.
+ */
+function shouldPaste(text: string): boolean {
+  // Long text (cover letters) - 50% chance to paste
+  if (text.length > 200) {
+    return Math.random() > 0.5;
+  }
+  
+  // Check if matches paste patterns
+  return PASTE_PATTERNS.some(pattern => pattern.test(text));
+}
+
+/**
+ * Paste text with realistic human behavior.
+ * Simulates: focus → pause (as if switching from another window) → paste → verify pause
+ * 
+ * Note: Uses fill() which triggers proper 'input' events matching real paste behavior.
+ * Real paste = single input event with full value, not character-by-character.
+ */
+export async function humanPaste(page: Page, selector: string, text: string): Promise<void> {
+  const el = page.locator(selector);
+  
+  // Scroll into view
+  await el.scrollIntoViewIfNeeded();
+  await microDelay();
+  
+  // Click to focus
+  await el.click();
+  await delay(150, 350); // Longer pause - simulates switching from browser/doc where text was copied
+  
+  // Clear existing content (triple-click to select all, more natural than Cmd+A for single field)
+  await el.click({ clickCount: 3 });
+  await delay(40, 100);
+  
+  // Use fill() - this fires a single 'input' event with the full value,
+  // which matches real clipboard paste behavior (vs typing fires per-character events)
+  await el.fill(text);
+  
+  // Verify pause (human glances at what was pasted)
+  await delay(200, 400);
+}
+
+/**
+ * Fill input with realistic behavior.
+ * Smart: pastes URLs/emails, types regular text.
  */
 export async function humanFill(page: Page, selector: string, text: string): Promise<void> {
+  // Use paste for URLs/emails, type for regular text
+  if (shouldPaste(text)) {
+    await humanPaste(page, selector, text);
+    return;
+  }
+  
   const el = page.locator(selector);
   
   // Scroll into view

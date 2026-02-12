@@ -57,8 +57,8 @@ const SEL = {
   termsAgree: '#terms-agree',
   submitBtn: '#submit-btn',
 
-  // Navigation
-  continueBtn: '.btn-primary',
+  // Navigation - only target button in active step
+  continueBtn: '.form-step.active .btn-primary',
 
   // Confirmation
   successPage: '#success-page',

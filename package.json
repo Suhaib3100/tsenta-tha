@@ -5,7 +5,8 @@
   "private": true,
   "scripts": {
     "serve": "npx serve mock-ats -p 3939",
-    "start": "npx tsx src/automator.ts"
+    "automate": "npx tsx src/automator.ts",
+    "start": "concurrently -k -s first \"pnpm serve\" \"wait-on http://localhost:3939 && pnpm automate\""
   },
   "dependencies": {
     "chalk": "^5.6.2",
@@ -14,8 +15,10 @@
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
+    "concurrently": "^9.2.1",
     "serve": "^14.2.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.0"
+    "typescript": "^5.7.0",
+    "wait-on": "^9.0.4"
   }
 }

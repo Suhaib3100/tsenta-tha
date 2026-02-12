@@ -1,196 +1,285 @@
-# Tsenta - Software Engineering Intern Take-Home Assessment
+# Tsenta ATS Form Automator
 
-**Time estimate**: 2-4 hours
-**Stack**: TypeScript, Playwright
+A production-grade Playwright automation system that fills job application forms across multiple ATS platforms with human-like behavior and anti-detection measures.
 
----
+## Demo Results
 
-## Context
-
-At Tsenta, we automate job applications across dozens of ATS (Applicant Tracking System) platforms, Greenhouse, Lever, Workday, and more. Each platform has different HTML structures, form patterns, and interaction models, but the *data* being entered is the same: name, email, resume, skills, etc.
-
-This assessment gives you **two mock job application forms** with different layouts and interaction patterns. Your job is to build a Playwright automation system that fills out both forms using the same candidate profile, with a clean architecture that could scale to support additional platforms.
-
----
-
-## Before You Start
-
-### Use whatever tools you want
-
-This is **not** a "write everything by hand" test. You're welcome to use any AI-assisted tools — Claude Code, Cursor, GitHub Copilot, Codex, or anything else. You can also use browser automation tooling like the [Playwright MCP server](https://github.com/microsoft/playwright-mcp), agent-browser, or similar.
-
-We care about the output, not whether you typed every character yourself. Just **document which tools you used** in your write-up — we're genuinely curious about your workflow.
-
-### Parts of this are intentionally vague
-
-We've left some things underspecified on purpose. When something isn't spelled out, make a decision, implement it, and briefly explain your reasoning. There's no single right answer — we want to see how you think through ambiguity.
-
-### Filling in form fields
-
-The `UserProfile` in `src/profile.ts` is your source of truth for what data to enter. But the profile won't map 1:1 to every form field — dropdown values might differ between platforms, some fields won't have an exact match in the profile, and some form fields are optional.
-
-When there's no exact match, **map the profile data intelligently to the closest option**. For example, if the profile says `education: "bachelors"` but the dropdown has `"Bachelor's Degree"` or `"bs"`, pick the right one. For fields that have no corresponding profile data at all (like optional demographic questions), use a sensible default or skip them — the point is that every *required* interaction works correctly, not that values are hardcoded.
+```
+✓ Acme Corp: ACM-MLJQF1JD-ZJ8Z (1.2m)
+✓ Globex Corporation: GX-MLJQGM23-W6B (1.2m)
+Run complete: 2/2 successful
+```
 
 ---
 
-## A) Setup
-
-### Prerequisites
-
-- Node.js 18+
-- npm (or bun/pnpm)
-
-### Installation
+## Quick Start
 
 ```bash
-# 1. Install dependencies
-npm install
+# Install dependencies
+pnpm install
 
-# 2. Install Playwright browsers
+# Install Playwright browsers
 npx playwright install chromium
 
-# 3. Verify the mock forms work
-npm run serve
-# Visit http://localhost:3939 — you'll see links to both forms
+# Run automation (starts server automatically)
+pnpm start
 ```
 
-### Project Structure
+That's it! The `start` command:
+1. Spins up the mock ATS server
+2. Waits for it to be ready
+3. Runs the automation
+4. Kills the server when done
+
+---
+
+## Architecture
 
 ```
-assessment-1/
-├── README.md                    # You're here
-├── package.json
-├── tsconfig.json
-├── mock-ats/                    # Two mock job application forms (DO NOT MODIFY)
-│   ├── index.html               # Landing page with links to both forms
-│   ├── acme.html                # Acme Corp — multi-step form
-│   ├── globex.html              # Globex Corp — single-page accordion form
-│   └── styles.css               # Styles for Acme
-├── fixtures/
-│   └── sample-resume.pdf        # Dummy resume for file upload
-└── src/
-    ├── types.ts                 # Type definitions (UserProfile, ApplicationResult)
-    ├── profile.ts               # Sample candidate profile data
-    └── automator.ts             # ⬅ YOUR MAIN WORK GOES HERE
+src/
+├── core/                 # Infrastructure layer
+│   ├── log.ts           # Ora spinners + clean CLI output
+│   ├── retry.ts         # Exponential backoff + circuit breaker
+│   ├── stealth.ts       # Anti-detection patches
+│   └── artifacts.ts     # Screenshots, videos, error reports
+│
+├── engine/              # Automation engine
+│   ├── human.ts         # Human-like behavior (Bezier curves, typos)
+│   ├── fields.ts        # Form field helpers with retry
+│   └── mappings.ts      # Platform-specific value transforms
+│
+├── platforms/           # ATS implementations
+│   ├── base.ts          # Abstract Platform class
+│   ├── acme.ts          # Acme Corp (4-step wizard)
+│   └── globex.ts        # Globex Corp (accordion form)
+│
+├── automator.ts         # Main orchestrator
+├── profile.ts           # Candidate profile data
+└── types.ts             # TypeScript definitions
+```
+
+### Design Patterns
+
+| Pattern | Where | Purpose |
+|---------|-------|---------|
+| **Strategy** | `Platform` abstract class | Swap platform implementations |
+| **Template Method** | `Platform.run()` | Common flow with custom fill/submit |
+| **Registry** | `registerPlatform()` | Auto-detect and dispatch |
+| **Factory** | `createLog()`, `createStealthContext()` | Configured instances |
+
+### Adding a New Platform
+
+```typescript
+// src/platforms/workday.ts
+import { Platform, registerPlatform } from './base';
+
+class WorkdayPlatform extends Platform {
+  readonly name = 'Workday';
+  readonly id = 'workday';
+  readonly urlPattern = /workday\.com/;
+
+  async fill(ctx: HandlerContext): Promise<void> {
+    // Platform-specific form filling
+  }
+
+  async submit(ctx: HandlerContext): Promise<void> {
+    // Submit logic
+  }
+
+  async getConfirmation(ctx: HandlerContext): Promise<string> {
+    // Extract confirmation ID
+  }
+}
+
+registerPlatform(new WorkdayPlatform());
 ```
 
 ---
 
-## The Two Forms
+## Features
 
-Open each form in your browser to explore them before writing any code.
+### Human-Like Behavior
 
-### Acme Corp (`/acme.html`) — Multi-Step Form
-- **4 step wizard** with progress bar and Next/Back navigation
-- Step validation — must fill required fields before proceeding
-- **Typeahead** school field (type to search, click a suggestion)
-- Standard **checkboxes** for skills
-- **Radio buttons** for yes/no questions
-- **Conditional fields** (visa sponsorship appears based on work auth answer)
-- File upload with drag-and-drop area
-- Review page before final submit, then a success page with confirmation ID
+| Feature | Implementation |
+|---------|---------------|
+| **Smart paste vs type** | Auto-detects URLs/emails → pastes; names/text → types character-by-character |
+| **Variable typing speed** | Gaussian distribution delays, faster for common words, slower for numbers |
+| **Typo simulation** | 2% chance of adjacent key typo + backspace correction |
+| **Bezier mouse curves** | Natural S-curve trajectories between points (not straight lines) |
+| **Hover before click** | Brief pause over element before clicking |
+| **Smooth scrolling** | Gradual scroll with easing, not instant jumps |
+| **Reading pauses** | Random delays to simulate human reading/thinking |
+| **Triple-click select** | Uses triple-click instead of Cmd+A for field selection |
 
-### Globex Corporation (`/globex.html`) — Single-Page Accordion Form
-- **Accordion sections** (click headers to expand/collapse) — all on one page
-- **Toggle switches** instead of radio buttons for yes/no
-- **Chip selectors** instead of checkboxes for skills (click chips to toggle)
-- **Salary slider** (`<input type="range">`) instead of text input
-- **Async typeahead** for school — results are fetched from a simulated API with network delay, and arrive in **shuffled order** each time (options are NOT in the DOM)
-- Inline validation — all sections open on submit if there are errors
-- Confirmation with reference number after submit
+### Stealth Mode
 
-Same data, very different UI patterns. This is the real challenge of ATS automation.
+| Feature | Details |
+|---------|---------|
+| **Webdriver removal** | Deletes `navigator.webdriver` property |
+| **Plugin spoofing** | Patches `navigator.plugins` and `navigator.mimeTypes` |
+| **Language spoofing** | Sets realistic `navigator.languages` array |
+| **Chrome runtime** | Simulates `window.chrome.runtime` |
+| **Permissions API** | Patches `navigator.permissions.query` |
+| **Viewport randomization** | Random resolution within common ranges |
+| **User agent rotation** | Realistic Chrome UA strings |
+
+### Reliability
+
+| Feature | Details |
+|---------|---------|
+| **Retry engine** | Exponential backoff (300ms base, 8s max, 2x multiplier) |
+| **Circuit breaker** | Opens after 5 consecutive failures, auto-recovers |
+| **Retry profiles** | `standard`, `aggressive`, `gentle`, `quick` presets |
+| **Error predicates** | Custom retry logic per error type |
+| **Smart typeahead** | Progressive typing until dropdown appears |
+| **Fuzzy matching** | Score-based selection (exact > starts with > contains) |
+| **State-based waits** | Uses DOM state/visibility instead of fixed delays |
+| **Scoped selectors** | `.form-step.active .btn` avoids ambiguous matches |
+
+### Observability
+
+| Feature | Details |
+|---------|---------|
+| **Ora spinners** | Clean animated loading indicators |
+| **Colored output** | Green ✓, Red ✗, Yellow !, Cyan headers |
+| **Step timing** | Duration tracked for each operation |
+| **Video recording** | Full browser session capture |
+| **Screenshots** | Captured on success and failure |
+| **Error reports** | JSON with stack traces, URL, timestamp |
+| **Run summary** | Final table with all platforms and results |
+
+### Efficiency
+
+| Feature | Details |
+|---------|---------|
+| **Single command** | `pnpm start` runs server + automation + cleanup |
+| **Progressive search** | Types minimum chars needed for typeahead |
+| **Batch chip selection** | Identifies all unselected → clicks without delays |
+| **No hardcoded waits** | All delays use range + DOM state checks |
+| **Smart paste** | URLs paste instantly instead of slow typing |
 
 ---
 
-## B) What You Need to Build
+## Platforms Supported
 
-### Part 1: Working Automation (~1.5-2 hours)
+### Acme Corp (`/acme.html`)
+- 4-step wizard with progress bar
+- Typeahead school field
+- Checkboxes for skills
+- Radio buttons with conditional fields
+- File upload with drag-drop area
 
-Implement `src/automator.ts` so that running `npm start` successfully submits applications to **both** forms. Your automation must:
+### Globex Corporation (`/globex.html`)  
+- Single-page accordion layout
+- **Async typeahead** with network delay + shuffled results
+- Chip selectors instead of checkboxes
+- Toggle switches instead of radios
+- Salary slider (`<input type="range">`)
 
-1. Launch a browser and navigate to each form
-2. Fill all required fields using the `UserProfile` from `src/profile.ts`
-3. Handle platform-specific interactions:
-   - Acme: typeahead, step navigation, conditional fields, checkboxes, radio buttons
-   - Globex: accordion expansion, toggle switches, chip selection, salary slider, async typeahead
-4. Submit each form and capture the confirmation ID / reference number
-5. Return an `ApplicationResult` for each
+---
 
-**Run your automation:**
-```bash
-# Start the mock form server (in one terminal)
-npm run serve
+## Configuration
 
-# Run your automator (in another terminal)
-npm start
+Edit `src/automator.ts`:
+
+```typescript
+const DEFAULT_CONFIG: RunConfig = {
+  baseUrl: "http://localhost:3939",
+  headless: false,        // Watch the browser
+  slowMo: 0,              // Extra delay between actions
+  recordVideo: true,      // Save video recordings
+  stealthMode: true,      // Anti-detection patches
+  keepBrowserOpen: 2000,  // View result before close
+};
 ```
 
-### Part 2: Architecture (~30 min - 1 hour)
+---
 
-This is where system design shows up *in your code*, not in a doc. Your code structure should answer:
+## Output
 
-- **How do you detect which platform you're on?** (URL matching, page content, etc.)
-- **How do you swap between platform-specific implementations?** (Strategy pattern, registry, etc.)
-- **What logic is shared vs. platform-specific?** (e.g., "fill a text input" is universal; "click a chip to select a skill" is Globex-specific)
-- **How would someone add a third ATS** without touching existing platform code?
+### Console
+```
+✓ Application Submitted Successfully
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Platform: Acme Corp
+Duration: 1.2m
+Confirm#: ACM-MLJQF1JD-ZJ8Z
+```
 
-You're free to create whatever files/folders make sense. We're evaluating the design through the code itself.
-
-### Part 3: Human-Like Behavior (~20-30 min)
-
-Real ATS platforms have bot detection. Add at least **two** of these to your automation:
-
-- Randomized delays between actions (not fixed `waitForTimeout`)
-- Variable-speed typing (faster for common words, slower for numbers/special chars)
-- Hover before clicking
-- Simulated reading pauses
-- Smooth scrolling
+### Artifacts
+```
+artifacts/
+├── videos/           # Full run recordings
+├── screenshots/      # Success/failure captures
+└── reports/          # JSON error reports
+```
 
 ---
 
-## C) What to Submit
+## Tools Used
 
-Submit your completed project as a **GitHub repo**. Include:
-
-1. **All source code** — we should be able to run `npm install && npm start` and see both forms filled successfully
-2. **A short write-up** (add to this README or create `DESIGN.md`) covering:
-   - How you structured the code and why
-   - What trade-offs you made given the time constraint
-   - What was the hardest part
-   - What AI tools / assistants you used and how
-3. **Submit your repo link here**: https://forms.gle/ACPi3ajwL8x3VfTE9
+- **Copilot** (Claude Opus 4.6) - Architecture design, implementation, debugging
+- **Playwright** - Browser automation framework
+- **Ora** - CLI spinner animations
+- **Chalk** - Terminal colors
+- **Concurrently** - Run server + automation in single command
+- **Wait-on** - Wait for server before running automation
 
 ---
 
-## D) Evaluation Criteria
+## Design Decisions
 
-| Criteria | Weight | What We're Looking For |
-|---|---|---|
-| **Automation Quality** | 35% | Does it work? Does it handle both forms, all field types, and edge cases? |
-| **Code Design** | 40% | Is it well-structured? Could a new ATS be added cleanly? Are abstractions earned, not forced? |
-| **Human-Like Behavior** | 25% | Are interactions realistic? Variable delays, natural typing? |
+### Why paste URLs instead of typing?
 
-### Bonus Points
+Real humans copy-paste URLs from their browser or documents. Typing `https://linkedin.com/in/janedoe` character-by-character is MORE suspicious to bot detectors. Our system auto-detects URLs/emails and pastes them with realistic timing (pause before paste, verify pause after).
 
-Not at all required, but we'd love seeing any of these:
+### Why Bezier curves for mouse movement?
 
-- Screenshots at each step for debugging
-- Retry logic for flaky interactions
-- Structured logging (timestamps, step names, field names)
-- Video/trace recording of the automation run
-- Performance tracking (time per step, per form)
-- A third mock form or creative extensions
-- Tests that verify automation correctness
+Straight-line mouse paths are a bot signature. Humans naturally move in S-curves with acceleration and deceleration. We use quadratic Bezier curves with 15 intermediate steps.
+
+### Why typos?
+
+Perfectly typed text is suspicious. Real humans make mistakes. We simulate 2% typo rate (adjacent key on QWERTY) followed by immediate backspace correction. Rate is low enough to not trigger form validation issues.
+
+### Why exponential backoff?
+
+Network glitches and DOM timing issues are common. Linear retry hammers the system. Exponential backoff (300ms → 600ms → 1.2s → ...) is gentler and more effective.
+
+### Why circuit breaker?
+
+Prevents infinite retry loops. After 5 consecutive failures, we "open" the circuit and fail fast. Auto-recovers after cooldown period.
+
+### Why fuzzy typeahead matching?
+
+Globex's async school search returns shuffled results. Can't rely on exact position. Fuzzy scoring finds best match: exact(100) > startsWith(80) > wordsMatch(60) > contains(40).
 
 ---
 
-## Tips
+## Trade-offs
 
-- **Read the HTML first.** Open `mock-ats/acme.html` and `mock-ats/globex.html` in your editor. Understand the selectors, validation logic, and conditional behavior. This is exactly how we work with real ATS platforms.
-- **Start with one form.** Get Acme working end-to-end, then add Globex. The refactoring to support both is where your design skills show.
-- **Don't over-engineer.** We'd rather see clean, working code with natural patterns than an elaborate framework that doesn't run.
-- The `fixtures/sample-resume.pdf` file is provided for file upload steps.
-- Playwright docs: https://playwright.dev/docs/intro
+| Decision | Rationale |
+|----------|-----------|
+| **Playwright over Puppeteer** | Better TypeScript support, auto-wait, trace viewer |
+| **Abstract class over interface** | Enforces template method pattern with shared logic |
+| **`fill()` for paste** | Fires single input event matching real clipboard behavior |
+| **Scoped selectors** | `.form-step.active .btn` avoids strict mode violations |
+| **Separate core/engine/platforms** | Clear separation of infrastructure vs logic vs handlers |
+| **State-based waits** | More reliable than fixed delays, adapts to network speed |
 
-Good luck, excited to see what you build!
+---
+
+## Hardest Parts
+
+1. **Async typeahead with shuffled results** - Globex's school field returns results in random order after network delay. Solved with fuzzy scoring (exact > starts with > contains).
+
+2. **Smart paste vs type** - Had to determine which fields humans paste (URLs, emails) vs type (names). Wrong choice = bot detection.
+
+3. **Strict mode violations** - Playwright's strict mode caught ambiguous selectors (3 "Continue" buttons). Fixed by scoping to `.form-step.active`.
+
+4. **humanType locator detection** - Original code incorrectly nested locators. Fixed by checking text parameter presence instead of `'locator' in target`.
+
+---
+
+## License
+
+MIT
