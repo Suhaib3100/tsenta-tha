@@ -1,199 +1,125 @@
 # Design — Tsenta ATS Form Automator
 
-## Overview
-
 Production-grade Playwright automation that fills job applications across ATS platforms with human-like behavior, anti-detection, and fault tolerance.
 
 ---
 
-## Architecture
+## Architecture Overview
 
-```
-src/
-├── core/                    # Infrastructure layer
-│   ├── log.ts              # Ora spinners, colored output
-│   ├── retry.ts            # Exponential backoff + circuit breaker
-│   ├── stealth.ts          # Anti-detection patches
-│   └── artifacts.ts        # Screenshots, videos, error reports
-│
-├── engine/                  # Automation engine
-│   ├── human.ts            # Human-like behavior (Bezier, typos, paste)
-│   ├── fields.ts           # Form field helpers with retry
-│   └── mappings.ts         # Platform-specific value transforms
-│
-├── platforms/               # ATS implementations
-│   ├── base.ts             # Abstract Platform class + registry
-│   ├── acme.ts             # Acme Corp (4-step wizard)
-│   └── globex.ts           # Globex Corp (accordion form)
-│
-├── automator.ts             # Main orchestrator
-├── profile.ts               # Candidate data
-└── types.ts                 # TypeScript definitions
-```
-
-### Layer Responsibilities
-
-| Layer | Purpose | Key Exports |
-|-------|---------|-------------|
-| **core/** | Infrastructure, cross-cutting concerns | `createLog`, `retry`, `createStealthContext`, `captureFailure` |
-| **engine/** | Domain-agnostic automation primitives | `humanFill`, `humanPaste`, `fillTypeahead`, `selectChips` |
-| **platforms/** | ATS-specific form handlers | `Platform`, `registerPlatform`, `detectPlatform` |
-
----
-
-## Design Patterns
-
-### 1. Strategy Pattern — Platform Swapping
-
-```typescript
-abstract class Platform {
-  abstract readonly name: string;
-  abstract readonly id: string;
-  abstract readonly urlPattern: RegExp;
-  
-  // Template method - common flow, custom steps
-  async run(page, profile): Promise<ApplicationResult> {
-    await this.fill(ctx);
-    await this.submit(ctx);
-    return { confirmationId: await this.getConfirmation(ctx) };
-  }
-  
-  protected abstract fill(ctx: HandlerContext): Promise<void>;
-  protected abstract submit(ctx: HandlerContext): Promise<void>;
-  protected abstract getConfirmation(ctx: HandlerContext): Promise<string>;
-}
-```
-
-### 2. Registry Pattern — Auto-Detection
-
-```typescript
-const platforms: Platform[] = [];
-
-export function registerPlatform(platform: Platform): void {
-  platforms.push(platform);
-}
-
-export function detectPlatform(url: string): Platform | null {
-  return platforms.find(p => p.urlPattern.test(url)) ?? null;
-}
-
-// Usage: Just import the platform file (side-effect registration)
-import './platforms/acme';   // Registers AcmePlatform
-import './platforms/globex'; // Registers GlobexPlatform
-```
-
-### 3. Circuit Breaker — Fault Tolerance
-
-```typescript
-class CircuitBreaker {
-  private failures = 0;
-  private lastFailure = 0;
-  private state: 'closed' | 'open' | 'half-open' = 'closed';
-  
-  async execute<T>(fn: () => Promise<T>): Promise<T> {
-    if (this.state === 'open') {
-      if (Date.now() - this.lastFailure > this.cooldown) {
-        this.state = 'half-open';
-      } else {
-        throw new Error('Circuit open');
-      }
-    }
+```mermaid
+graph TB
+    subgraph Automator["🎯 Automator"]
+        A[Load Profile] --> B[Create Stealth Context]
+        B --> C[For Each Target URL]
+        C --> D[Detect Platform]
+        D --> E[Run Handler]
+        E --> F[Capture Artifacts]
+    end
     
-    try {
-      const result = await fn();
-      this.onSuccess();
-      return result;
-    } catch (e) {
-      this.onFailure();
-      throw e;
-    }
-  }
-}
-```
-
-### 4. Factory Pattern — Configured Instances
-
-```typescript
-// Logger factory with scope
-export function createLog(scope: string): Log {
-  return new Log(scope);
-}
-
-// Stealth context factory
-export async function createStealthContext(browser, options): Promise<BrowserContext> {
-  const context = await browser.newContext(/* stealth config */);
-  await applyStealthPatches(context);
-  return context;
-}
+    subgraph Core["⚙️ Core Layer"]
+        G[log.ts<br/>Ora spinners]
+        H[retry.ts<br/>Backoff + Circuit]
+        I[stealth.ts<br/>Anti-detection]
+        J[artifacts.ts<br/>Screenshots]
+    end
+    
+    subgraph Engine["🤖 Engine Layer"]
+        K[human.ts<br/>Bezier, typos, paste]
+        L[fields.ts<br/>Form helpers]
+        M[mappings.ts<br/>Value transforms]
+    end
+    
+    subgraph Platforms["🏢 Platforms Layer"]
+        N[base.ts<br/>Abstract Platform]
+        O[acme.ts<br/>4-step wizard]
+        P[globex.ts<br/>Accordion form]
+    end
+    
+    Automator --> Core
+    Automator --> Engine
+    Automator --> Platforms
 ```
 
 ---
 
-## Human-Like Behavior System
+## Execution Flow
 
-### Smart Paste vs Type Detection
-
-```typescript
-const PASTE_PATTERNS = [
-  /^https?:\/\//i,     // URLs
-  /^www\./i,           // URLs without protocol
-  /linkedin\.com/i,    // Social links
-  /github\.com/i,      
-  /@.*\..{2,}/,        // Emails
-];
-
-function shouldPaste(text: string): boolean {
-  if (text.length > 200) return Math.random() > 0.5; // Long text
-  return PASTE_PATTERNS.some(p => p.test(text));
-}
+```mermaid
+flowchart TD
+    A([Start]) --> B[Load Candidate Profile]
+    B --> C[Create Stealth Browser Context]
+    C --> D{For Each Target URL}
+    
+    D --> E[Navigate to URL]
+    E --> F[Detect Platform by URL Pattern]
+    F --> G{Platform Found?}
+    
+    G -->|No| H[⚠️ Skip - Unknown ATS]
+    G -->|Yes| I[Run Platform Handler]
+    
+    I --> J[Fill Form Fields]
+    J --> K[Submit Application]
+    K --> L[Extract Confirmation ID]
+    
+    L --> M{Success?}
+    M -->|Yes| N[📸 Save Success Screenshot]
+    M -->|No| O[🔴 Capture Failure Report]
+    
+    N --> P[Log Result]
+    O --> P
+    H --> P
+    
+    P --> D
+    D -->|All Done| Q[Print Summary]
+    Q --> R([End])
+    
+    style A fill:#10b981
+    style R fill:#10b981
+    style H fill:#f59e0b
+    style O fill:#ef4444
+    style N fill:#3b82f6
 ```
 
-**Why paste URLs?** Typing `https://linkedin.com/in/user` character-by-character is MORE suspicious than pasting. Real humans copy-paste URLs.
+---
 
-### Bezier Mouse Curves
+## Human Input Behavior
 
-```typescript
-function bezierPoint(t, p0, p1, p2, p3) {
-  // Quadratic Bezier for natural S-curve
-  const u = 1 - t;
-  return u*u*u * p0 + 3*u*u*t * p1 + 3*u*t*t * p2 + t*t*t * p3;
-}
+Varies input method based on content type — real humans don't behave consistently.
 
-async function bezierMove(page, from, to) {
-  // Control points create natural curve
-  const cp1 = { x: from.x + (to.x - from.x) * 0.3, y: from.y };
-  const cp2 = { x: to.x - (to.x - from.x) * 0.3, y: to.y };
-  
-  for (let t = 0; t <= 1; t += 1/15) {
-    const x = bezierPoint(t, from.x, cp1.x, cp2.x, to.x);
-    const y = bezierPoint(t, from.y, cp1.y, cp2.y, to.y);
-    await page.mouse.move(x, y);
-  }
-}
-```
-
-### Typo Simulation
-
-```typescript
-const QWERTY_NEIGHBORS = {
-  'a': ['q', 'w', 's', 'z'],
-  'b': ['v', 'g', 'h', 'n'],
-  // ... full keyboard map
-};
-
-async function humanType(locator, text) {
-  for (const char of text) {
-    // 2% chance of typo
-    if (Math.random() < 0.02) {
-      const typo = QWERTY_NEIGHBORS[char]?.[Math.floor(Math.random() * 4)] ?? char;
-      await locator.press(typo);
-      await delay(50, 150);
-      await locator.press('Backspace');
-    }
-    await locator.press(char);
-    await delay(45, 140); // Variable speed
-  }
-}
+```mermaid
+flowchart TD
+    A[Input Text] --> B{URL or Email?}
+    
+    B -->|Yes| C[📋 PASTE<br/>Always paste links]
+    B -->|No| D{Length < 50 chars?}
+    
+    D -->|Yes| E[⌨️ TYPE<br/>Character by character]
+    D -->|No| F{Length ≤ 200 chars?}
+    
+    F -->|Yes| G{Random}
+    G -->|70%| E
+    G -->|30%| C
+    
+    F -->|No| H{Random Distribution}
+    H -->|25%| I[⌨️ TYPE ALL<br/>Slow typer]
+    H -->|30%| J[📋 PASTE ALL<br/>From document]
+    H -->|25%| K[📋 PASTE + EDIT<br/>Fix a typo after]
+    H -->|20%| L[⌨️ TYPE SOME → 📋 PASTE<br/>Give up halfway]
+    
+    K --> K1[Paste full text]
+    K1 --> K2[Delete last char]
+    K2 --> K3[Retype last char]
+    
+    L --> L1[Type 2-4 words]
+    L1 --> L2[Pause... too slow]
+    L2 --> L3[Select all + Paste]
+    
+    style C fill:#3b82f6
+    style E fill:#10b981
+    style I fill:#10b981
+    style J fill:#3b82f6
+    style K fill:#8b5cf6
+    style L fill:#f59e0b
 ```
 
 ---
@@ -202,224 +128,317 @@ async function humanType(locator, text) {
 
 ### Exponential Backoff
 
-```typescript
-async function retry<T>(fn: () => Promise<T>, options: RetryOptions): Promise<T> {
-  let delay = options.baseDelay; // 300ms
-  
-  for (let attempt = 1; attempt <= options.maxAttempts; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      if (attempt === options.maxAttempts) throw error;
-      
-      // Exponential backoff with jitter
-      const jitter = options.jitter ? Math.random() * 0.3 : 0;
-      await sleep(delay * (1 + jitter));
-      delay = Math.min(delay * options.multiplier, options.maxDelay);
-    }
-  }
-}
+```mermaid
+flowchart LR
+    A[Attempt 1] -->|Fail| B[Wait 300ms]
+    B --> C[Attempt 2]
+    C -->|Fail| D[Wait 600ms]
+    D --> E[Attempt 3]
+    E -->|Fail| F[Wait 1.2s]
+    F --> G[Attempt 4]
+    G -->|Fail| H[❌ Give Up]
+    
+    A -->|Success| S[✅ Done]
+    C -->|Success| S
+    E -->|Success| S
+    G -->|Success| S
+    
+    style S fill:#10b981
+    style H fill:#ef4444
+```
+
+### Circuit Breaker States
+
+```mermaid
+stateDiagram-v2
+    [*] --> Closed
+    
+    Closed --> Closed: ✅ Success
+    Closed --> Closed: ❌ Failure (count < 3)
+    Closed --> Open: ❌ Failures ≥ 3
+    
+    Open --> Open: 🚫 All calls rejected
+    Open --> HalfOpen: ⏱️ Cooldown elapsed
+    
+    HalfOpen --> Closed: ✅ Test call succeeds
+    HalfOpen --> Open: ❌ Test call fails
+    
+    note right of Closed: Normal operation
+    note right of Open: Protect system
+    note right of HalfOpen: Testing recovery
 ```
 
 ### Retry Profiles
 
-```typescript
-export const RETRY_PROFILES = {
-  standard:   { maxAttempts: 3, baseDelay: 300, maxDelay: 5000, multiplier: 2 },
-  aggressive: { maxAttempts: 5, baseDelay: 200, maxDelay: 8000, multiplier: 1.5 },
-  gentle:     { maxAttempts: 2, baseDelay: 500, maxDelay: 3000, multiplier: 2 },
-  quick:      { maxAttempts: 2, baseDelay: 100, maxDelay: 1000, multiplier: 2 },
-};
+```mermaid
+gantt
+    title Retry Timing Profiles
+    dateFormat X
+    axisFormat %L ms
+    
+    section Aggressive
+    Attempt 1    :a1, 0, 100ms
+    Wait 200ms   :a2, after a1, 200ms
+    Attempt 2    :a3, after a2, 100ms
+    Wait 400ms   :a4, after a3, 400ms
+    Attempt 3    :a5, after a4, 100ms
+    Wait 800ms   :a6, after a5, 800ms
+    Attempt 4    :a7, after a6, 100ms
+    Wait 1.6s    :a8, after a7, 1600ms
+    Attempt 5    :a9, after a8, 100ms
+    
+    section Standard
+    Attempt 1    :s1, 0, 100ms
+    Wait 300ms   :s2, after s1, 300ms
+    Attempt 2    :s3, after s2, 100ms
+    Wait 600ms   :s4, after s3, 600ms
+    Attempt 3    :s5, after s4, 100ms
+    
+    section Quick
+    Attempt 1    :q1, 0, 100ms
+    Wait 100ms   :q2, after q1, 100ms
+    Attempt 2    :q3, after q2, 100ms
+```
+
+---
+
+## Mouse Movement
+
+```mermaid
+flowchart LR
+    subgraph Bot["🤖 Bot Movement"]
+        B1((Start)) --> B2((End))
+    end
+    
+    subgraph Human["👤 Human Movement"]
+        H1((Start)) --> H2((Control 1))
+        H2 --> H3((Control 2))
+        H3 --> H4((End))
+    end
+```
+
+```mermaid
+xychart-beta
+    title "Bezier Curve Mouse Path"
+    x-axis [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    y-axis "Y Position" 0 --> 100
+    line "Bot (straight)" [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 100]
+    line "Human (bezier)" [10, 15, 25, 40, 55, 72, 85, 92, 97, 99, 100]
+```
+
+**Bot:** Straight line, constant speed — easily detected  
+**Human:** S-curve, decelerates at end — natural motion
+
+---
+
+## Typeahead Interaction
+
+```mermaid
+sequenceDiagram
+    participant User as 👤 Bot (as User)
+    participant Input as 📝 Input Field
+    participant Server as 🖥️ Server
+    participant Dropdown as 📋 Dropdown
+    
+    User->>Input: Type "S"
+    Note over Dropdown: Too few chars
+    
+    User->>Input: Type "Sa"
+    Input->>Server: Search "Sa"
+    Server-->>Dropdown: Results (async, shuffled)
+    Note over Dropdown: San Diego<br/>San Jose<br/>San Francisco
+    
+    User->>User: Fuzzy match scores
+    Note over User: "San Francisco" = 80<br/>(prefix match)
+    
+    User->>Dropdown: Click best match
+    Dropdown->>Input: Fill "San Francisco, CA"
+```
+
+### Fuzzy Scoring
+
+```mermaid
+pie title Match Quality Distribution
+    "Exact (100)" : 5
+    "Prefix (80)" : 25
+    "Words (60)" : 35
+    "Contains (40)" : 25
+    "Partial (0-20)" : 10
+```
+
+| Score | Match Type | Example |
+|-------|------------|---------|
+| **100** | Exact | `"react"` = `"react"` |
+| **80** | Prefix | `"react"` starts `"reactjs"` |
+| **60** | Words | `"native"` in `"react native"` |
+| **40** | Contains | `"act"` within `"react"` |
+| **0-20** | Partial | Some characters match |
+
+---
+
+## Platform Pattern
+
+```mermaid
+classDiagram
+    class Platform {
+        <<abstract>>
+        +name: string
+        +id: string
+        +urlPattern: RegExp
+        +run(page, profile) ApplicationResult
+        #fill(ctx)*
+        #submit(ctx)*
+        #getConfirmation(ctx)*
+    }
+    
+    class AcmePlatform {
+        +name = "Acme Corp"
+        +urlPattern = /acme/
+        #fill() 4-step wizard
+        #submit() Continue buttons
+        #getConfirmation() .confirmation-id
+    }
+    
+    class GlobexPlatform {
+        +name = "Globex Corp"
+        +urlPattern = /globex/
+        #fill() Accordion sections
+        #submit() Toggle + slider
+        #getConfirmation() .confirmation-code
+    }
+    
+    class NewPlatform {
+        +name = "Your ATS"
+        +urlPattern = /yoursite/
+        #fill() Your form logic
+        #submit() Your submit
+        #getConfirmation() Your selector
+    }
+    
+    Platform <|-- AcmePlatform
+    Platform <|-- GlobexPlatform
+    Platform <|-- NewPlatform
+```
+
+### Platform Comparison
+
+```mermaid
+mindmap
+  root((Platforms))
+    Acme Corp
+      4-step wizard
+      Continue buttons
+      Checkboxes for skills
+      Radio buttons for Y/N
+      Sync typeahead
+      Text input salary
+    Globex Corp
+      Accordion sections
+      Section headers
+      Clickable chips
+      Toggle switch
+      Async typeahead
+      Range slider salary
 ```
 
 ---
 
 ## Stealth Mode
 
-### Anti-Detection Patches
-
-```typescript
-async function applyStealthPatches(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    // Remove webdriver flag
-    Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+```mermaid
+flowchart LR
+    subgraph Detection["🔍 Detection Vectors"]
+        D1[navigator.webdriver = true]
+        D2[Empty plugins array]
+        D3[Straight mouse lines]
+        D4[Instant typing]
+        D5[Zero typos]
+        D6[Fixed viewport]
+        D7[Same user agent]
+    end
     
-    // Fake plugins
-    Object.defineProperty(navigator, 'plugins', {
-      get: () => [{ name: 'Chrome PDF Plugin' }, { name: 'Native Client' }]
-    });
+    subgraph Patches["🛡️ Stealth Patches"]
+        P1[webdriver = undefined]
+        P2[Fake plugins array]
+        P3[Bezier curves]
+        P4[45-140ms delays]
+        P5[2% typo rate]
+        P6[Random viewports]
+        P7[Rotated 2026 UAs]
+    end
     
-    // Fake languages
-    Object.defineProperty(navigator, 'languages', {
-      get: () => ['en-US', 'en']
-    });
-    
-    // Chrome runtime
-    window.chrome = { runtime: {} };
-    
-    // Permissions API
-    const originalQuery = navigator.permissions.query;
-    navigator.permissions.query = (params) =>
-      params.name === 'notifications'
-        ? Promise.resolve({ state: 'denied' })
-        : originalQuery(params);
-  });
-}
+    D1 --> P1
+    D2 --> P2
+    D3 --> P3
+    D4 --> P4
+    D5 --> P5
+    D6 --> P6
+    D7 --> P7
 ```
 
 ---
 
-## Smart Typeahead
+## Artifacts Structure
 
-### Progressive Typing
-
-```typescript
-async function fillTypeahead(page, input, dropdown, value) {
-  // Type minimum chars until dropdown appears (2-8)
-  for (let len = 2; len <= 8; len++) {
-    await page.locator(input).fill(value.substring(0, len));
-    if (await page.locator(dropdown).isVisible({ timeout: 300 })) break;
-  }
-  
-  // Wait for dropdown
-  await page.locator(dropdown).waitFor({ state: 'visible' });
-  
-  // Fuzzy match best result
-  const results = page.locator(`${dropdown} li`);
-  let bestIndex = 0, bestScore = -1;
-  
-  for (let i = 0; i < await results.count(); i++) {
-    const text = await results.nth(i).textContent();
-    const score = fuzzyScore(value, text);
-    if (score > bestScore) { bestScore = score; bestIndex = i; }
-  }
-  
-  await results.nth(bestIndex).click();
-}
-```
-
-### Fuzzy Scoring
-
-```typescript
-function fuzzyScore(needle, haystack): number {
-  if (haystack === needle) return 100;           // Exact
-  if (haystack.startsWith(needle)) return 80;    // Prefix
-  if (allWordsMatch(needle, haystack)) return 60; // Words
-  if (haystack.includes(needle)) return 40;      // Contains
-  return matchingChars(needle, haystack) * 20;   // Partial
-}
-```
-
----
-
-## Platform Specifics
-
-| Feature | Acme Corp | Globex Corp |
-|---------|-----------|-------------|
-| Layout | 4-step wizard | Accordion sections |
-| Skills | Checkboxes | Clickable chips |
-| Yes/No | Radio buttons | Toggle switches |
-| School | Sync typeahead | **Async** typeahead (shuffled) |
-| Salary | Text input | Range slider |
-| Navigation | `.form-step.active .btn` | Section headers |
-
-### Value Mappings
-
-```typescript
-// Globex uses different dropdown values
-const globexMapper = {
-  education: (v) => ({ bachelors: 'bs', masters: 'ms' }[v] ?? v),
-  experience: (v) => ({ '0-1': 'entry', '1-3': 'junior' }[v] ?? v),
-  skills: (arr) => arr.map(s => ({ javascript: 'js', typescript: 'ts' }[s] ?? s)),
-};
-```
-
----
-
-## Artifacts System
-
-```typescript
-async function captureFailure(page, platform, step, error): Promise<string> {
-  const timestamp = new Date().toISOString();
-  const screenshotPath = `artifacts/failures/${platform}-${step}-${timestamp}.png`;
-  
-  await page.screenshot({ path: screenshotPath, fullPage: true });
-  
-  const report = {
-    timestamp,
-    platform,
-    step,
-    url: page.url(),
-    error: { name: error.name, message: error.message, stack: error.stack },
-    screenshotPath,
-  };
-  
-  await fs.writeFile(
-    `artifacts/reports/${platform}-${timestamp}.json`,
-    JSON.stringify(report, null, 2)
-  );
-  
-  return screenshotPath;
-}
+```mermaid
+flowchart TD
+    A[artifacts/] --> B[screenshots/]
+    A --> C[failures/]
+    A --> D[reports/]
+    
+    B --> B1[acme-success-*.png]
+    B --> B2[globex-success-*.png]
+    
+    C --> C1[platform-step-failure-*.png]
+    
+    D --> D1[platform-submission-*.json]
+    
+    D1 --> E["{ platform, confirmationId,<br/>duration, steps[], timestamp }"]
 ```
 
 ---
 
 ## Adding a New Platform
 
-```typescript
-// src/platforms/workday.ts
-
-import { Platform, registerPlatform, type HandlerContext } from './base';
-import { fillText, selectOption, uploadFile } from '../engine/fields';
-
-class WorkdayPlatform extends Platform {
-  readonly name = 'Workday';
-  readonly id = 'workday';
-  readonly urlPattern = /workday\.com/;
-
-  async fill(ctx: HandlerContext): Promise<void> {
-    const { page, profile } = ctx;
-    await fillText(page, '#firstName', profile.firstName);
-    await fillText(page, '#lastName', profile.lastName);
-    // ... rest of form
-  }
-
-  async submit(ctx: HandlerContext): Promise<void> {
-    await ctx.page.click('#submit');
-  }
-
-  async getConfirmation(ctx: HandlerContext): Promise<string> {
-    return await ctx.page.locator('.confirmation-id').textContent();
-  }
-}
-
-registerPlatform(new WorkdayPlatform());
-```
-
-**That's it.** Import the file in `automator.ts` and it auto-registers.
-
----
-
-## Commands
-
-```bash
-pnpm start      # Runs server + automation in one command
-pnpm serve      # Start mock server only
-pnpm automate   # Run automation only (needs server)
+```mermaid
+flowchart LR
+    A[1. Create file<br/>platforms/new.ts] --> B[2. Extend Platform<br/>abstract class]
+    B --> C[3. Implement methods<br/>fill, submit, getConfirmation]
+    C --> D[4. Call registerPlatform<br/>at module load]
+    D --> E[5. Import in<br/>automator.ts]
+    E --> F[✅ Auto-detects<br/>by URL pattern]
+    
+    style F fill:#10b981
 ```
 
 ---
 
 ## Key Decisions
 
-| Decision | Why |
-|----------|-----|
-| **Paste URLs** | Character-by-character typing of URLs is more suspicious than pasting |
-| **Bezier curves** | Straight-line mouse movement is a bot signature |
-| **2% typo rate** | Low enough to not trigger form validation, realistic enough to fool detection |
-| **Exponential backoff** | Gentler on system than linear retry |
-| **Circuit breaker** | Prevents infinite retry loops on persistent failures |
-| **Fuzzy typeahead** | Handles async responses that arrive in random order |
-| **Scoped selectors** | `.form-step.active .btn` avoids strict mode violations |
-| **State waits** | `waitFor('visible')` is more reliable than fixed `delay()` |
+```mermaid
+mindmap
+  root((Design Decisions))
+    Human Behavior
+      Paste URLs
+        Typing links is MORE suspicious
+      Bezier curves
+        Straight lines = bot signature
+      2% typos
+        Pass validation, look human
+      Varied input
+        Real humans are inconsistent
+    Reliability
+      Exponential backoff
+        Gentle on system
+      Circuit breaker
+        Stop runaway failures
+      Fuzzy typeahead
+        Handle async shuffled results
+    Architecture
+      Scoped selectors
+        Avoid multi-match errors
+      State waits
+        More reliable than fixed delays
+      Platform registry
+        Auto-detection by URL
+```
