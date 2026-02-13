@@ -2,6 +2,12 @@
 
 A production-grade Playwright automation system that fills job application forms across multiple ATS platforms with human-like behavior and anti-detection measures.
 
+## Demo Video
+
+[![Watch the Demo](https://img.youtube.com/vi/i6tDOE7rhXU/maxresdefault.jpg)](https://youtu.be/i6tDOE7rhXU)
+
+> **Click to watch** — 3 min walkthrough showing both forms being automated with human-like behavior.
+
 ## Demo Results
 
 ```
