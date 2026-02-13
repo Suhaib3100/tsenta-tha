@@ -4,9 +4,15 @@ A production-grade Playwright automation system that fills job application forms
 
 ## Demo Video
 
-[![Watch the Demo](https://img.youtube.com/vi/i6tDOE7rhXU/maxresdefault.jpg)](https://youtu.be/i6tDOE7rhXU)
+<a href="https://youtu.be/i6tDOE7rhXU">
+  <picture>
+    <img src="assets/demo-thumbnail.png" alt="Watch the Demo" width="600">
+  </picture>
+  <br>
+  <img src="https://img.shields.io/badge/▶_Watch_Demo-FF0000?style=for-the-badge&logo=youtube&logoColor=white" alt="Watch on YouTube">
+</a>
 
-> **Click to watch** — 3 min walkthrough showing both forms being automated with human-like behavior.
+> 3 min walkthrough showing both forms being automated with human-like behavior.
 
 ## Demo Results
 
