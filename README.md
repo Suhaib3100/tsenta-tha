@@ -56,20 +56,75 @@ pnpm test
 pnpm test:coverage
 ```
 
-**60 tests** covering:
+**72 tests** covering:
 - Human behavior utilities (`randomBetween`, `gaussianRandom`, `shouldPaste`)
 - Fuzzy scoring algorithm for typeahead matching
 - Retry engine with exponential backoff
 - Circuit breaker state machine
 - Retry predicates for error classification
+- **AI resume optimization** (job analysis, skill matching, cover letter optimization)
 
 ```
 tests/
+├── ai/
+│   └── resume-optimizer.test.ts  # AI optimization tests
 ├── core/
-│   └── retry.test.ts      # Retry engine, circuit breaker
+│   └── retry.test.ts             # Retry engine, circuit breaker
 └── engine/
-    ├── fields.test.ts     # Fuzzy scoring algorithm
-    └── human.test.ts      # Random utils, paste detection
+    ├── fields.test.ts            # Fuzzy scoring algorithm
+    └── human.test.ts             # Random utils, paste detection
+```
+
+---
+
+## 🤖 AI Resume Optimization
+
+Automatically tailor your resume and cover letter for each job using OpenAI!
+
+### Setup
+
+1. Copy the example env file:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Add your OpenAI API key to `.env`:
+   ```
+   OPENAI_API_KEY=sk-your-api-key-here
+   ```
+
+### Features
+
+- **Job Description Parsing** - Extracts required skills, keywords, and responsibilities
+- **Cover Letter Optimization** - Naturally injects relevant keywords
+- **Skill Prioritization** - Reorders your skills to match job requirements
+- **Match Scoring** - Calculates how well your profile matches each job
+- **Fast Mode** - Quick optimization without full AI processing
+- **Caching** - Avoids redundant API calls for same job descriptions
+
+### How It Works
+
+```mermaid
+flowchart LR
+    A[Job Description] --> B[AI Analysis]
+    B --> C[Extract Keywords]
+    C --> D[Match Skills]
+    D --> E[Optimize Cover Letter]
+    E --> F[Prioritize Skills]
+    F --> G[Submit Optimized Application]
+```
+
+### Configuration
+
+In `src/automator.ts`:
+
+```typescript
+const DEFAULT_CONFIG = {
+  // ... other config
+  enableAI: true,                    // Enable AI optimization
+  openaiApiKey: process.env.OPENAI_API_KEY,
+  quickOptimization: false,          // Use fast mode (less accurate)
+};
 ```
 
 ---

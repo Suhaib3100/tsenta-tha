@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 import { sampleProfile } from "./profile";
 import type { ApplicationResult, UserProfile } from "./types";
@@ -5,6 +6,7 @@ import { detectPlatform } from "./platforms/base";
 import { createStealthContext, createStealthPage, randomizeFingerprint } from "./core/stealth";
 import { createLog, printSummary, type RunSummary } from "./core/log";
 import { configureArtifacts, getVideoOptions, saveVideo, captureFailure } from "./core/artifacts";
+import { createResumeOptimizer, extractJobDescription, type OptimizedProfile } from "./ai";
 
 // Register platforms (side-effect imports)
 import "./platforms/acme";
@@ -39,6 +41,10 @@ interface RunConfig {
   recordVideo: boolean;
   stealthMode: boolean;
   keepBrowserOpen: number; // ms to keep browser open after completion
+  // AI Resume Optimization
+  enableAI: boolean;
+  openaiApiKey?: string;
+  quickOptimization: boolean; // Use faster optimization (less accurate)
 }
 
 const DEFAULT_CONFIG: RunConfig = {
@@ -48,6 +54,10 @@ const DEFAULT_CONFIG: RunConfig = {
   recordVideo: true,
   stealthMode: true,
   keepBrowserOpen: 2000,
+  // AI settings - set via OPENAI_API_KEY environment variable
+  enableAI: true,
+  openaiApiKey: process.env.OPENAI_API_KEY,
+  quickOptimization: false,
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -63,12 +73,72 @@ const logger = createLog('Runner');
 interface Target {
   name: string;
   url: string;
+  /** Optional job description for AI optimization */
+  jobDescription?: string;
+  /** Selector to extract job description if not provided */
+  jobDescriptionSelector?: string;
 }
+
+// Sample job descriptions for demo (in real use, these come from job pages)
+const SAMPLE_JOB_DESCRIPTIONS = {
+  acme: `Software Engineer at Acme Corp
+
+We're looking for a passionate Software Engineer to join our team.
+
+Requirements:
+- Strong proficiency in JavaScript/TypeScript
+- Experience with React and modern frontend frameworks
+- Familiarity with Node.js and REST APIs
+- Understanding of Git and CI/CD practices
+- Strong problem-solving skills
+
+Nice to have:
+- Experience with Docker and cloud platforms
+- Knowledge of SQL databases
+- Prior startup experience
+
+Responsibilities:
+- Build and maintain web applications
+- Write clean, tested, maintainable code
+- Collaborate with cross-functional teams
+- Participate in code reviews`,
+
+  globex: `Full Stack Developer - Globex Corporation
+
+Globex is seeking a Full Stack Developer to help build our next-generation platform.
+
+Required Skills:
+- Python and JavaScript/TypeScript expertise
+- React or Vue.js frontend experience
+- Backend development with Node.js or Python
+- Database design (PostgreSQL, MongoDB)
+- RESTful API development
+
+Preferred:
+- GraphQL experience
+- AWS or cloud deployment
+- Agile/Scrum methodology
+- Open source contributions
+
+What you'll do:
+- Design and implement scalable systems
+- Work on both frontend and backend
+- Optimize application performance
+- Mentor junior developers`,
+};
 
 function getTargets(baseUrl: string): Target[] {
   return [
-    { name: "Acme Corp", url: `${baseUrl}/acme.html` },
-    { name: "Globex Corporation", url: `${baseUrl}/globex.html` },
+    { 
+      name: "Acme Corp", 
+      url: `${baseUrl}/acme.html`,
+      jobDescription: SAMPLE_JOB_DESCRIPTIONS.acme,
+    },
+    { 
+      name: "Globex Corporation", 
+      url: `${baseUrl}/globex.html`,
+      jobDescription: SAMPLE_JOB_DESCRIPTIONS.globex,
+    },
   ];
 }
 
@@ -114,6 +184,51 @@ async function applyToJob(
     targetLogger.info(`Navigating to form`);
     await page.goto(target.url, { waitUntil: 'networkidle', timeout: 30000 });
 
+    // ─────────────────────────────────────────────────────────
+    // AI Resume Optimization
+    // ─────────────────────────────────────────────────────────
+    
+    let optimizedProfile: UserProfile | OptimizedProfile = profile;
+    
+    if (config.enableAI && config.openaiApiKey) {
+      try {
+        targetLogger.info('Optimizing resume with AI...');
+        
+        // Get job description from target or extract from page
+        let jobDescription = target.jobDescription;
+        
+        if (!jobDescription) {
+          const extracted = await extractJobDescription(page, target.jobDescriptionSelector);
+          if (extracted) {
+            jobDescription = extracted;
+            targetLogger.info('Extracted job description from page');
+          }
+        }
+        
+        if (jobDescription) {
+          const optimizer = createResumeOptimizer(config.openaiApiKey, {
+            model: 'gpt-4o-mini', // Fast model for real-time use
+            timeout: 20000,
+          });
+          
+          optimizedProfile = config.quickOptimization
+            ? await optimizer.quickOptimize(profile, jobDescription)
+            : await optimizer.optimizeProfile(profile, jobDescription);
+          
+          // Log optimization results
+          if ('_matchScore' in optimizedProfile) {
+            targetLogger.info(`Match score: ${optimizedProfile._matchScore}%`);
+            targetLogger.info(`Prioritized skills: ${optimizedProfile._prioritizedSkills.slice(0, 5).join(', ')}`);
+          }
+        } else {
+          targetLogger.info('No job description available, using original profile');
+        }
+      } catch (aiError) {
+        const errMsg = aiError instanceof Error ? aiError.message : String(aiError);
+        targetLogger.error(`AI optimization failed: ${errMsg} - using original profile`);
+      }
+    }
+
     // Detect platform from URL
     const platform = detectPlatform(target.url);
     
@@ -123,8 +238,8 @@ async function applyToJob(
 
     targetLogger.info(`Detected platform: ${platform.name}`);
 
-    // Run the platform's form automation
-    const result = await platform.run(page, profile);
+    // Run the platform's form automation with optimized profile
+    const result = await platform.run(page, optimizedProfile);
 
     // Save video if enabled
     if (config.recordVideo && page) {
@@ -180,6 +295,7 @@ async function main() {
   
   logger.info('Starting ATS automation run');
   logger.info(`Config: headless=${config.headless}, stealth=${config.stealthMode}, video=${config.recordVideo}`);
+  logger.info(`AI: enabled=${config.enableAI}, quick=${config.quickOptimization}, key=${config.openaiApiKey ? '***' + config.openaiApiKey.slice(-4) : 'not set'}`);
 
   // Get targets
   const targets = getTargets(config.baseUrl);
