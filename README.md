@@ -27,6 +27,12 @@ A production-grade Playwright automation system that fills job application forms
 
 > 3 min walkthrough showing both forms being automated with human-like behavior.
 
+### 🆕 AI Resume Generation (Added Later)
+
+<div style="position: relative; padding-bottom: 56.2500%; height: 0;"><iframe style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0;" src="https://www.tella.tv/video/vid_cmlo2eoot000004judu987inb/embed?b=1&title=1&a=1&loop=0&autoPlay=true&t=0&muted=1&wt=1" allowfullscreen allowtransparency></iframe></div>
+
+> This feature was added after the main demo — AI-powered PDF resume generation that creates a unique, keyword-optimized resume for each job application.
+
 ## Demo Results
 
 ```
