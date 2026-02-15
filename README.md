@@ -3,17 +3,7 @@
 A production-grade Playwright automation system that fills job application forms across multiple ATS platforms with human-like behavior and anti-detection measures.
 
 > [!NOTE]
-> **🆕 AI-Powered PDF Resume Generation** — This project now generates a **unique, keyword-optimized PDF resume for each job application**. The AI analyzes each job description, extracts required skills, optimizes your profile, and creates a tailored ATS-friendly PDF resume — all running **in parallel** while form fields are being filled. This feature is **not shown in the demo video below**.
->
-> **Flow:**
-> ```
-> Navigate to Job → Start AI Analysis + PDF Generation (background)
->                 ↓
->       Fill Personal Info ──────────────────────┐
->       Fill Experience → Wait for resume ←──────┘ (PDF ready)
->       Upload optimized resume
->       Submit Application
-> ```
+> **Two versions included:** The first demo shows form automation. The second demo (below) adds **AI-powered PDF resume generation** — creates a unique, keyword-optimized resume per job application while form fills run in parallel.
 
 ## Demo Video
 
