@@ -10,6 +10,24 @@ import { captureFailure, takeScreenshot } from '../core/artifacts';
 import { retry } from '../core/retry';
 
 // ─────────────────────────────────────────────────────────────
+// Run Options
+// ─────────────────────────────────────────────────────────────
+
+export interface PlatformRunOptions {
+  /** Path to resume PDF to upload (uses default if not provided) */
+  resumePath?: string;
+  
+  /** 
+   * Promise that resolves to resume path - allows async PDF generation 
+   * while filling other form fields. Takes priority over resumePath.
+   */
+  resumePathPromise?: Promise<string | undefined>;
+  
+  /** Cover letter content (optional) */
+  coverLetter?: string;
+}
+
+// ─────────────────────────────────────────────────────────────
 // Handler Context
 // ─────────────────────────────────────────────────────────────
 
@@ -18,6 +36,7 @@ export interface HandlerContext {
   profile: UserProfile;
   logger: Log;
   steps: StepResult[];
+  options: PlatformRunOptions;
   
   /** Execute a step with timing and error tracking */
   runStep: <T>(name: string, fn: () => Promise<T>) => Promise<T>;
@@ -46,7 +65,7 @@ export abstract class Platform {
    * Main entry point - template method
    * Handles timing, error catching, artifacts, and result formatting
    */
-  async run(page: Page, profile: UserProfile): Promise<ApplicationResult> {
+  async run(page: Page, profile: UserProfile, options: PlatformRunOptions = {}): Promise<ApplicationResult> {
     const start = Date.now();
     const steps: StepResult[] = [];
     
@@ -56,6 +75,7 @@ export abstract class Platform {
       profile,
       logger: this.logger,
       steps,
+      options,
       runStep: async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
         const stepStart = Date.now();
         try {

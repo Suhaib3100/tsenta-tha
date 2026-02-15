@@ -75,10 +75,27 @@ class AcmePlatform extends Platform {
   readonly urlPattern = /acme/i;
 
   protected async fill(ctx: HandlerContext): Promise<void> {
-    const { page, profile, logger } = ctx;
+    const { page, profile, logger, options } = ctx;
     
+    // Start filling form immediately - don't wait for resume generation
     await ctx.runStep('Step 1: Personal Info', () => this.fillStep1(page, profile));
-    await ctx.runStep('Step 2: Experience', () => this.fillStep2(page, profile));
+    
+    // Step 2 needs the resume - resolve the promise here if provided
+    await ctx.runStep('Step 2: Experience', async () => {
+      let resumePath = options.resumePath;
+      
+      // If we have a promise, await it now (resume was generating in background)
+      if (options.resumePathPromise) {
+        logger.info('Waiting for resume generation...');
+        resumePath = await options.resumePathPromise;
+        if (resumePath) {
+          logger.info('Resume ready, continuing...');
+        }
+      }
+      
+      await this.fillStep2(page, profile, resumePath);
+    });
+    
     await ctx.runStep('Step 3: Questions', () => this.fillStep3(page, profile));
     await ctx.runStep('Step 4: Review', () => this.fillStep4(page));
   }
@@ -109,10 +126,10 @@ class AcmePlatform extends Platform {
   // Step 2: Experience & Education
   // ─────────────────────────────────────────────────────────
 
-  private async fillStep2(page: Page, profile: UserProfile): Promise<void> {
-    // Resume upload with retry
-    const resumePath = resolve(process.cwd(), 'fixtures/sample-resume.pdf');
-    await retry(() => uploadFile(page, SEL.resume, resumePath), 'standard');
+  private async fillStep2(page: Page, profile: UserProfile, resumePath?: string): Promise<void> {
+    // Resume upload with retry - use provided path or default
+    const finalResumePath = resumePath || resolve(process.cwd(), 'fixtures/sample-resume.pdf');
+    await retry(() => uploadFile(page, SEL.resume, finalResumePath), 'standard');
 
     // Dropdowns
     await selectOption(page, SEL.experienceLevel, acmeMapper.experience(profile.experienceLevel));

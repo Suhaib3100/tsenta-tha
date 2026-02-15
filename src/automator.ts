@@ -6,7 +6,7 @@ import { detectPlatform } from "./platforms/base";
 import { createStealthContext, createStealthPage, randomizeFingerprint } from "./core/stealth";
 import { createLog, printSummary, type RunSummary } from "./core/log";
 import { configureArtifacts, getVideoOptions, saveVideo, captureFailure } from "./core/artifacts";
-import { createResumeOptimizer, extractJobDescription, type OptimizedProfile } from "./ai";
+import { createResumeOptimizer, extractJobDescription, generateResumePDF, type OptimizedProfile } from "./ai";
 
 // Register platforms (side-effect imports)
 import "./platforms/acme";
@@ -185,47 +185,64 @@ async function applyToJob(
     await page.goto(target.url, { waitUntil: 'networkidle', timeout: 30000 });
 
     // ─────────────────────────────────────────────────────────
-    // AI Resume Optimization
+    // AI Resume Optimization (runs in background while form fills)
     // ─────────────────────────────────────────────────────────
     
     let optimizedProfile: UserProfile | OptimizedProfile = profile;
+    let resumePathPromise: Promise<string | undefined> | undefined;
     
     if (config.enableAI && config.openaiApiKey) {
-      try {
-        targetLogger.info('Optimizing resume with AI...');
-        
-        // Get job description from target or extract from page
-        let jobDescription = target.jobDescription;
-        
-        if (!jobDescription) {
-          const extracted = await extractJobDescription(page, target.jobDescriptionSelector);
-          if (extracted) {
-            jobDescription = extracted;
-            targetLogger.info('Extracted job description from page');
-          }
+      // Get job description from target or extract from page
+      let jobDescription = target.jobDescription;
+      
+      if (!jobDescription) {
+        const extracted = await extractJobDescription(page, target.jobDescriptionSelector);
+        if (extracted) {
+          jobDescription = extracted;
+          targetLogger.info('Extracted job description from page');
         }
+      }
+      
+      if (jobDescription) {
+        // Start AI optimization + PDF generation as a background task
+        targetLogger.info('Starting background AI optimization + PDF generation...');
         
-        if (jobDescription) {
-          const optimizer = createResumeOptimizer(config.openaiApiKey, {
-            model: 'gpt-4o-mini', // Fast model for real-time use
-            timeout: 20000,
-          });
-          
-          optimizedProfile = config.quickOptimization
-            ? await optimizer.quickOptimize(profile, jobDescription)
-            : await optimizer.optimizeProfile(profile, jobDescription);
-          
-          // Log optimization results
-          if ('_matchScore' in optimizedProfile) {
-            targetLogger.info(`Match score: ${optimizedProfile._matchScore}%`);
-            targetLogger.info(`Prioritized skills: ${optimizedProfile._prioritizedSkills.slice(0, 5).join(', ')}`);
+        const optimizer = createResumeOptimizer(config.openaiApiKey, {
+          model: 'gpt-4o-mini',
+          timeout: 20000,
+        });
+        
+        // Create a promise that handles the entire AI + PDF flow
+        resumePathPromise = (async () => {
+          try {
+            // Optimize profile
+            const result = config.quickOptimization
+              ? await optimizer.quickOptimize(profile, jobDescription!)
+              : await optimizer.optimizeProfile(profile, jobDescription!);
+            
+            // Store optimized profile for form filling
+            optimizedProfile = result;
+            
+            if ('_matchScore' in result) {
+              targetLogger.info(`AI: Match ${result._matchScore}%, Skills: ${result._prioritizedSkills.slice(0, 3).join(', ')}`);
+            }
+            
+            // Generate PDF
+            const pdfResult = await generateResumePDF(result, {
+              outputDir: 'artifacts/resumes',
+              template: 'modern',
+            });
+            
+            targetLogger.info(`PDF ready: ${pdfResult.filePath.split('/').pop()}`);
+            return pdfResult.filePath;
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            targetLogger.error(`Background AI/PDF failed: ${errMsg}`);
+            return undefined;
           }
-        } else {
-          targetLogger.info('No job description available, using original profile');
-        }
-      } catch (aiError) {
-        const errMsg = aiError instanceof Error ? aiError.message : String(aiError);
-        targetLogger.error(`AI optimization failed: ${errMsg} - using original profile`);
+        })();
+      } else {
+        targetLogger.info('No job description, using original profile');
       }
     }
 
@@ -238,8 +255,11 @@ async function applyToJob(
 
     targetLogger.info(`Detected platform: ${platform.name}`);
 
-    // Run the platform's form automation with optimized profile
-    const result = await platform.run(page, optimizedProfile);
+    // Run the platform's form automation - resume generation runs in parallel
+    // Form filling starts immediately, resume is awaited when needed for upload
+    const result = await platform.run(page, optimizedProfile, {
+      resumePathPromise,
+    });
 
     // Save video if enabled
     if (config.recordVideo && page) {

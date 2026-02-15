@@ -6,3 +6,5 @@
 export * from './types';
 export * from './openai';
 export * from './resume-optimizer';
+export * from './pdf-parser';
+export * from './pdf-generator';

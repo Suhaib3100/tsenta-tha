@@ -2,6 +2,19 @@
 
 A production-grade Playwright automation system that fills job application forms across multiple ATS platforms with human-like behavior and anti-detection measures.
 
+> [!NOTE]
+> **🆕 AI-Powered PDF Resume Generation** — This project now generates a **unique, keyword-optimized PDF resume for each job application**. The AI analyzes each job description, extracts required skills, optimizes your profile, and creates a tailored ATS-friendly PDF resume — all running **in parallel** while form fields are being filled. This feature is **not shown in the demo video below**.
+>
+> **Flow:**
+> ```
+> Navigate to Job → Start AI Analysis + PDF Generation (background)
+>                 ↓
+>       Fill Personal Info ──────────────────────┐
+>       Fill Experience → Wait for resume ←──────┘ (PDF ready)
+>       Upload optimized resume
+>       Submit Application
+> ```
+
 ## Demo Video
 
 <a href="https://youtu.be/i6tDOE7rhXU">
@@ -95,11 +108,12 @@ Automatically tailor your resume and cover letter for each job using OpenAI!
 
 ### Features
 
+- **PDF Resume Generation** - Creates a unique ATS-optimized PDF resume per job
 - **Job Description Parsing** - Extracts required skills, keywords, and responsibilities
 - **Cover Letter Optimization** - Naturally injects relevant keywords
 - **Skill Prioritization** - Reorders your skills to match job requirements
 - **Match Scoring** - Calculates how well your profile matches each job
-- **Fast Mode** - Quick optimization without full AI processing
+- **Parallel Processing** - PDF generation runs in background while form fills
 - **Caching** - Avoids redundant API calls for same job descriptions
 
 ### How It Works
@@ -110,7 +124,7 @@ flowchart LR
     B --> C[Extract Keywords]
     C --> D[Match Skills]
     D --> E[Optimize Cover Letter]
-    E --> F[Prioritize Skills]
+    E --> F[Generate PDF Resume]
     F --> G[Submit Optimized Application]
 ```
 

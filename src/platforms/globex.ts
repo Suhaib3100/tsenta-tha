@@ -84,10 +84,27 @@ class GlobexPlatform extends Platform {
   readonly urlPattern = /globex/i;
 
   protected async fill(ctx: HandlerContext): Promise<void> {
-    const { page, profile } = ctx;
+    const { page, profile, options, logger } = ctx;
     
+    // Start filling form immediately - don't wait for resume generation
     await ctx.runStep('Section 1: Contact', () => this.fillSection1(page, profile));
-    await ctx.runStep('Section 2: Qualifications', () => this.fillSection2(page, profile));
+    
+    // Section 2 needs the resume - resolve the promise here if provided
+    await ctx.runStep('Section 2: Qualifications', async () => {
+      let resumePath = options.resumePath;
+      
+      // If we have a promise, await it now (resume was generating in background)
+      if (options.resumePathPromise) {
+        logger.info('Waiting for resume generation...');
+        resumePath = await options.resumePathPromise;
+        if (resumePath) {
+          logger.info('Resume ready, continuing...');
+        }
+      }
+      
+      await this.fillSection2(page, profile, resumePath);
+    });
+    
     await ctx.runStep('Section 3: Additional', () => this.fillSection3(page, profile));
   }
 
@@ -118,13 +135,13 @@ class GlobexPlatform extends Platform {
   // Section 2: Qualifications
   // ─────────────────────────────────────────────────────────
 
-  private async fillSection2(page: Page, profile: UserProfile): Promise<void> {
+  private async fillSection2(page: Page, profile: UserProfile, resumePath?: string): Promise<void> {
     // Open accordion (check if not already open)
     await this.ensureSectionOpen(page, SEL.section2, SEL.section2Body);
 
-    // Resume with retry
-    const resumePath = resolve(process.cwd(), 'fixtures/sample-resume.pdf');
-    await retry(() => uploadFile(page, SEL.resume, resumePath), 'standard');
+    // Resume with retry - use provided path or default
+    const finalResumePath = resumePath || resolve(process.cwd(), 'fixtures/sample-resume.pdf');
+    await retry(() => uploadFile(page, SEL.resume, finalResumePath), 'standard');
 
     // Experience & Degree (using centralized mappings)
     await selectOption(page, SEL.experience, globexMapper.experience(profile.experienceLevel));
